@@ -27,6 +27,7 @@ interface SidebarProps {
   activeTab: ModuleTab;
   setActiveTab: (tab: ModuleTab) => void;
   unreadNotificationCount: number;
+  unreadNewsCount?: number;
   user: UserInfo;
   users: UserInfo[];
   onSwitchUser: (user: UserInfo) => void;
@@ -49,6 +50,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   setActiveTab,
   unreadNotificationCount,
+  unreadNewsCount = 0,
   user,
   users,
   onSwitchUser,
@@ -67,10 +69,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const navMetaMap: Record<ModuleTab, NavMeta> = {
     tasks: { id: 'tasks', label: '每日工作', icon: <Briefcase className="w-4 h-4" /> },
-    memos: { id: 'memos', label: '工作备忘录', icon: <StickyNote className="w-4 h-4" /> },
+    memos: { id: 'memos', label: '生活备忘录', icon: <StickyNote className="w-4 h-4" /> },
     expenses: { id: 'expenses', label: '个人记账本', icon: <CreditCard className="w-4 h-4" /> },
     office: { id: 'office', label: '办公助手', icon: <FileText className="w-4 h-4" /> },
-    news: { id: 'news', label: '今日推送', icon: <Radio className="w-4 h-4" />, badge: 10 },
+    news: {
+      id: 'news',
+      label: '今日推送',
+      icon: <Radio className="w-4 h-4" />,
+      badge: unreadNewsCount > 0 ? unreadNewsCount : undefined,
+    },
     tenders: { id: 'tenders', label: '标讯管理', icon: <Gavel className="w-4 h-4" /> },
     health: { id: 'health', label: '健康指数', icon: <HeartPulse className="w-4 h-4" /> },
     admin: { id: 'admin', label: '管理控制台', icon: <Shield className="w-4 h-4" /> },

@@ -27,12 +27,12 @@ COPY --from=builder /app/dist .
 # 复制定制化 SPA 路由及 Gzip 配置文件
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# 暴露标准 HTTP 服务端口
-EXPOSE 80
+# 暴露服务端口 (10000)
+EXPOSE 10000
 
 # 容器健康检查
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:80/ || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:10000/ || exit 1
 
 # 启动 Nginx 服务
 CMD ["nginx", "-g", "daemon off;"]

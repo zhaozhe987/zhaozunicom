@@ -58,9 +58,9 @@ docker compose ps
 docker compose logs -f office-assistant
 ```
 
-此时即可在浏览器中通过 `http://<您的服务器公网IP>:8080` 访问办公助手！
+此时即可在浏览器中通过 `http://<您的服务器公网IP>:10000` 访问办公助手！
 
-> **提示**：如需直接使用 80 端口（浏览器默认端口免输端口号），只需在 `docker-compose.yml` 中将 `"8080:80"` 改为 `"80:80"` 即可。
+> **提示**：当前 Docker 容器与宿主机已全链路配置为 `10000` 端口。如需通过外网直接访问，请确保云服务器安全组已放行 `10000` 端口。
 
 ---
 
@@ -78,7 +78,7 @@ docker build -t office-assistant:latest .
 docker run -d \
   --name office_assistant_app \
   --restart always \
-  -p 8080:80 \
+  -p 10000:10000 \
   office-assistant:latest
 ```
 
@@ -116,9 +116,9 @@ server {
     ssl_ciphers HIGH:!aNULL:!MD5;
     ssl_prefer_server_ciphers on;
 
-    # 反向代理至 Docker 容器
+    # 反向代理至 Docker 容器 (10000 端口)
     location / {
-        proxy_pass http://127.0.0.1:8080;
+        proxy_pass http://127.0.0.1:10000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -148,13 +148,13 @@ sudo certbot --nginx -d oa.yourcompany.com
 
 ### Q2：云服务器无法通过公网访问？
 **排查步骤**：
-1. 检查云厂商（阿里云 / 腾讯云 / 华为云）控制台的 **安全组规则 (Security Group)**，确认是否放行了入方向的 `8080`、`80` 或 `443` 端口；
+1. 检查云厂商（阿里云 / 腾讯云 / 华为云）控制台的 **安全组规则 (Security Group)**，确认是否放行了入方向的 `10000`、`80` 或 `443` 端口；
 2. 检查服务器内部防火墙：
    ```bash
    # Ubuntu UFW:
-   sudo ufw allow 8080/tcp
+   sudo ufw allow 10000/tcp
    # CentOS Firewalld:
-   sudo firewall-cmd --zone=public --add-port=8080/tcp --permanent && sudo firewall-cmd --reload
+   sudo firewall-cmd --zone=public --add-port=10000/tcp --permanent && sudo firewall-cmd --reload
    ```
 
 ### Q3：版本更新与重新部署命令：
@@ -168,3 +168,13 @@ docker compose up -d --build
 
 ### Q4：容器数据持久性说明：
 本平台采用跨端高效的 Web 离线高可用存储方案（用户设置、工作流待办、协同申请与系统品牌），所有修改均在客户端与浏览器环境双向持久化，无需繁琐挂载外部 SQL 数据库即可开箱即用。
+
+### Q5：Windows 执行 `docker compose up` 提示 `failed to read dockerfile: open Dockerfile: no such file or directory`？
+**核心原因与排查**：
+1. **Windows 默认隐藏扩展名导致变成了 `Dockerfile.txt`**：
+   在资源管理器中新建文本文件命名为 `Dockerfile`，由于 Windows 隐藏扩展名，其实际文件名是 `Dockerfile.txt`。
+   - **解决方式**：在 CMD 中执行 `ren Dockerfile.txt Dockerfile`；或者在 Windows 资源管理器「查看」中勾选「文件扩展名」，将多余的 `.txt` 后缀删掉。
+2. **当前目录缺少完整代码文件**：
+   `docker compose` 构建时需要在当前目录下读取 `Dockerfile`、`nginx.conf`、`package.json` 及 `src` 源码目录。如果您是从 AI Studio 导出的项目，请确保将**压缩包内的所有文件完整解压至当前目录**，而不是单独只放了一个 `docker-compose.yml`。
+3. **解压存在嵌套子目录**：
+   如果解压后代码在 `F:\work_assistant\project_name` 文件夹内，请在 CMD 中先 `cd project_name` 进入包含 `Dockerfile` 和 `package.json` 的那层目录，再运行 `docker compose up -d`。

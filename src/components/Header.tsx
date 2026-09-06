@@ -26,7 +26,7 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const tabTitles: Record<ModuleTab, string> = {
     tasks: '今日任务列表',
-    memos: '工作备忘录',
+    memos: '生活备忘录',
     expenses: '个人记账本',
     office: '办公转换工具',
     news: '今日精选资讯',

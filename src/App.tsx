@@ -272,6 +272,7 @@ export default function App() {
   }
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const unreadNewsCount = news.filter((n) => !n.isRead).length;
 
   const todayStr = getTodayDateStr();
   const todayRecord = healthRecords.find((r) => r.date === todayStr);
@@ -284,6 +285,7 @@ export default function App() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         unreadNotificationCount={unreadCount}
+        unreadNewsCount={unreadNewsCount}
         user={currentUser}
         users={users}
         onSwitchUser={handleSwitchUser}

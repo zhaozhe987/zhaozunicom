@@ -27,6 +27,11 @@ export interface TaskItem {
   isSharedToGroup?: boolean;
   sharedGroupId?: string;
   sharedGroupName?: string;
+  // Personal member direct sharing
+  sharedToType?: 'none' | 'group' | 'member';
+  sharedWithUserIds?: string[];
+  sharedWithUserNames?: string[];
+  shareNote?: string;
 }
 
 export interface MemoItem {
@@ -88,11 +93,15 @@ export interface NewsItem {
   category: NewsCategory;
   publishTime: string;
   summary: string;
-  url: string;
+  url?: string;
+  content?: string;
   isRead?: boolean;
   pushDate?: string; // YYYY-MM-DD
   pushBatch?: string; // e.g. "今日 08:00 准时推送"
   sourceWebsiteName?: string;
+  canDirectJump?: boolean; // false if external link is shielded (homepage/invalid)
+  shieldReason?: string;
+  articlePlatform?: 'toutiao' | 'weixin' | 'thepaper' | 'xinhua' | 'official' | 'inapp';
 }
 
 export type TenderType = '招标公告' | '中标结果' | '更正公告';
