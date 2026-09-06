@@ -1,5 +1,5 @@
 import React from 'react';
-import { Menu, Bell, FileDown, RefreshCw } from 'lucide-react';
+import { Menu, Bell, FileDown, RefreshCw, LogOut } from 'lucide-react';
 import { ModuleTab } from '../types';
 import { getTodayDateStr, formatDateDisplay, getWeekdayStr } from '../utils/storage';
 
@@ -11,6 +11,7 @@ interface HeaderProps {
   healthScore?: number;
   syncStatus?: 'synced' | 'syncing' | 'offline';
   onOpenMobileSidebar?: () => void;
+  onLogout?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -21,6 +22,7 @@ export const Header: React.FC<HeaderProps> = ({
   healthScore = 85,
   syncStatus = 'synced',
   onOpenMobileSidebar,
+  onLogout,
 }) => {
   const tabTitles: Record<ModuleTab, string> = {
     tasks: '今日任务列表',
@@ -119,6 +121,18 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
           )}
         </button>
+
+        {/* Logout Button */}
+        {onLogout && (
+          <button
+            id="btn-header-logout"
+            onClick={onLogout}
+            className="p-2 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors"
+            title="退出登录"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        )}
       </div>
     </header>
   );

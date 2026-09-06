@@ -160,6 +160,7 @@ export type UserRole = 'admin' | 'supervisor' | 'member';
 export interface UserInfo {
   userId: string;
   username: string;
+  password?: string;
   displayName: string;
   avatar?: string;
   role: UserRole;

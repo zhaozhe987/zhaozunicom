@@ -17,6 +17,8 @@ import {
   Check,
   UserCheck,
   ChevronDown,
+  LogOut,
+  Lock,
 } from 'lucide-react';
 import { ModuleTab, UserInfo, BrandingConfig } from '../types';
 import { defaultModuleOrder } from '../utils/storage';
@@ -33,6 +35,7 @@ interface SidebarProps {
   setModuleOrder: React.Dispatch<React.SetStateAction<ModuleTab[]>>;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
+  onLogout?: () => void;
 }
 
 interface NavMeta {
@@ -54,10 +57,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setModuleOrder,
   isMobileOpen = false,
   onCloseMobile,
+  onLogout,
 }) => {
   const [isReordering, setIsReordering] = useState(false);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+
+  const isAdmin = user.role === 'admin';
 
   const navMetaMap: Record<ModuleTab, NavMeta> = {
     tasks: { id: 'tasks', label: '每日工作', icon: <Briefcase className="w-4 h-4" /> },
@@ -70,9 +76,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     admin: { id: 'admin', label: '管理控制台', icon: <Shield className="w-4 h-4" /> },
   };
 
-  // Ensure all modules are represented in moduleOrder (including admin)
-  const fullOrder = [...moduleOrder];
-  if (!fullOrder.includes('admin')) {
+  // Requirement: Except for administrators, no other role is allowed to view the admin management platform
+  const fullOrder = moduleOrder.filter((tab) => isAdmin || tab !== 'admin');
+  if (isAdmin && !fullOrder.includes('admin')) {
     fullOrder.push('admin');
   }
 
@@ -289,9 +295,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         })}
       </nav>
 
-      {/* Current User & Quick Account Switcher (Requirement 1 & 6) */}
-      <div className="p-4 border-t border-slate-800 relative bg-slate-950/40">
-        <div className="flex items-center justify-between">
+      {/* Current User & Session / Account Control (Requirement: 不允许普通用户进行账号的切换) */}
+      <div className="p-3.5 border-t border-slate-800 relative bg-slate-950/50">
+        <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center font-bold text-xs text-white overflow-hidden border border-slate-600 shrink-0">
               {user.avatar ? (
@@ -301,31 +307,59 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
             </div>
             <div className="overflow-hidden min-w-0">
-              <p className="text-xs font-bold text-white truncate flex items-center gap-1">
-                <span>{user.displayName}</span>
-              </p>
+              <div className="flex items-center gap-1.5">
+                <p className="text-xs font-bold text-white truncate">
+                  {user.displayName}
+                </p>
+                <span
+                  className={`text-[9px] px-1.5 py-0.2 rounded font-mono shrink-0 ${
+                    user.role === 'admin'
+                      ? 'bg-blue-600 text-white font-bold'
+                      : user.role === 'supervisor'
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                      : 'bg-slate-800 text-slate-300'
+                  }`}
+                >
+                  {user.role === 'admin' ? '管理员' : user.role === 'supervisor' ? '主管' : '成员'}
+                </span>
+              </div>
               <p className="text-[10px] text-slate-400 truncate">
-                {user.department || user.role}
+                {user.department || user.username}
               </p>
             </div>
           </div>
 
-          {/* Switch User Button */}
-          <button
-            onClick={() => setShowUserDropdown(!showUserDropdown)}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-            title="切换不同账号"
-          >
-            <ChevronDown className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Requirement: Only administrators are permitted to switch accounts */}
+            {user.role === 'admin' && (
+              <button
+                onClick={() => setShowUserDropdown(!showUserDropdown)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                title="切换账号 (管理员调试专用)"
+              >
+                <ChevronDown className="w-4 h-4" />
+              </button>
+            )}
+
+            {/* Logout Button for All Users */}
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                title="退出当前登录"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* User Switcher Dropdown */}
-        {showUserDropdown && (
+        {/* User Switcher Dropdown (Admin Only) */}
+        {user.role === 'admin' && showUserDropdown && (
           <div className="absolute bottom-full left-4 right-4 mb-2 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl p-2 z-50 text-xs space-y-1">
             <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-700 mb-1 flex items-center justify-between">
               <span>快速切换登录账号</span>
-              <span className="text-blue-400">同群协同演示</span>
+              <span className="text-blue-400">管理员权限</span>
             </div>
             <div className="max-h-56 overflow-y-auto space-y-1">
               {users.map((u) => {

@@ -18,6 +18,11 @@ import {
   Sparkles,
   RefreshCw,
   Eye,
+  ShieldAlert,
+  Lock,
+  CheckCircle2,
+  ShieldCheck,
+  Sliders,
 } from 'lucide-react';
 import { UserInfo, UserGroup, GroupShareRequest, BrandingConfig, UserRole } from '../types';
 
@@ -46,11 +51,12 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
   setShareRequests,
   onSwitchUser,
 }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'groups' | 'branding' | 'requests'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'groups' | 'branding' | 'requests' | 'permissions'>('users');
 
   // New user form state
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [newUsername, setNewUsername] = useState('');
+  const [newPassword, setNewPassword] = useState('password123');
   const [newDisplayName, setNewDisplayName] = useState('');
   const [newRole, setNewRole] = useState<UserRole>('member');
   const [newDepartment, setNewDepartment] = useState('');
@@ -78,11 +84,12 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
     const newUser: UserInfo = {
       userId: `user_${Date.now().toString().slice(-6)}`,
       username: newUsername.trim().toLowerCase(),
+      password: newPassword.trim() || 'password123',
       displayName: newDisplayName.trim(),
       role: newRole,
       department: newDepartment.trim() || '未指定部门',
       groupList: newSelectedGroups,
-      device: '吉吉办公 客户端',
+      device: `${branding.appName || '办公助手'} 客户端`,
       createdAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
       canManageUsers: newRole === 'admin',
     };
@@ -102,11 +109,43 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
 
     // Reset form
     setNewUsername('');
+    setNewPassword('password123');
     setNewDisplayName('');
     setNewRole('member');
     setNewDepartment('');
     setNewSelectedGroups([]);
     setShowAddUserModal(false);
+  };
+
+  // Handle Update User Role
+  const handleUpdateUserRole = (userId: string, updatedRole: UserRole) => {
+    if (userId === currentUser.userId && updatedRole !== 'admin') {
+      alert('操作拦截：不能撤销当前管理员自己的超级管理员权限！');
+      return;
+    }
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.userId === userId
+          ? { ...u, role: updatedRole, canManageUsers: updatedRole === 'admin' }
+          : u
+      )
+    );
+  };
+
+  // Handle Reset User Password
+  const handleResetPassword = (userId: string, username: string) => {
+    const newPass = window.prompt(`正在为账号【@${username}】重置密码，请输入新密码:`, 'password123');
+    if (newPass === null) return;
+    if (!newPass.trim()) {
+      alert('密码不能为空！');
+      return;
+    }
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.userId === userId ? { ...u, password: newPass.trim() } : u
+      )
+    );
+    alert(`账号【@${username}】密码已成功重置为: ${newPass.trim()}`);
   };
 
   // Handle Delete User
@@ -214,6 +253,27 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
     setTimeout(() => setLogoSaveSuccess(false), 3000);
   };
 
+  // Requirement: Except for administrators, no other role is allowed to view the admin management platform
+  if (currentUser.role !== 'admin') {
+    return (
+      <div className="bg-white rounded-2xl border border-red-200 p-8 text-center max-w-lg mx-auto shadow-sm my-12">
+        <div className="w-14 h-14 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center mx-auto mb-4">
+          <ShieldAlert className="w-8 h-8" />
+        </div>
+        <h2 className="text-base font-bold text-slate-900 mb-2">访问受限：无权查看管理控制平台</h2>
+        <p className="text-xs text-slate-500 leading-relaxed mb-5">
+          当前登录账号【{currentUser.displayName}】角色为【
+          {currentUser.role === 'supervisor' ? '部门主管' : '普通成员'}
+          】。系统安全防护机制已生效：除系统管理员外，其他角色一律不允许查看或操作管理控制平台及权限配置。
+        </p>
+        <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-600 flex items-center justify-center gap-2">
+          <Lock className="w-3.5 h-3.5 text-slate-400" />
+          <span>如需管理权限，请联系企业 IT 超级管理员授权。</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Module Title Banner */}
@@ -224,30 +284,30 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
             <Shield className="w-5 h-5 text-indigo-600" />
             <h2 className="text-base font-bold text-slate-800">管理员权限与协同治理中心</h2>
             <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-              {currentUser.role === 'admin' ? '当前：超级管理员' : '受限访问模式'}
+              超级管理员专区
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            统一分配系统账号、设立群组架构、审批群待办共享权限，以及管理员自定义系统品牌 Logo。
+            统一分配系统账号、设定角色权限体系（RBAC）、设立群组架构、审批待办共享及定制系统品牌 Logo。
           </p>
         </div>
 
-        {/* Quick User Switcher for Testing/Demo */}
+        {/* Quick User Badge */}
         <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
           <UserCheck className="w-4 h-4 text-slate-500" />
-          <span className="text-xs text-slate-600 font-medium">当前登录:</span>
+          <span className="text-xs text-slate-600 font-medium">当前管理员:</span>
           <span className="text-xs font-bold text-slate-800">{currentUser.displayName}</span>
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-mono">
-            {currentUser.role}
+            admin
           </span>
         </div>
       </div>
 
       {/* Top Segment Navigation */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2 overflow-x-auto">
         <button
           onClick={() => setActiveTab('users')}
-          className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 ${
+          className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shrink-0 ${
             activeTab === 'users'
               ? 'bg-blue-600 text-white shadow-xs'
               : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
@@ -258,8 +318,20 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveTab('permissions')}
+          className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shrink-0 ${
+            activeTab === 'permissions'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <ShieldCheck className="w-3.5 h-3.5" />
+          <span>系统权限矩阵 (RBAC)</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('groups')}
-          className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 ${
+          className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shrink-0 ${
             activeTab === 'groups'
               ? 'bg-blue-600 text-white shadow-xs'
               : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
@@ -271,7 +343,7 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
 
         <button
           onClick={() => setActiveTab('branding')}
-          className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 ${
+          className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shrink-0 ${
             activeTab === 'branding'
               ? 'bg-blue-600 text-white shadow-xs'
               : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
@@ -283,7 +355,7 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
 
         <button
           onClick={() => setActiveTab('requests')}
-          className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 ${
+          className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shrink-0 ${
             activeTab === 'requests'
               ? 'bg-blue-600 text-white shadow-xs'
               : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
@@ -355,19 +427,25 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
                       </td>
                       <td className="py-3.5 px-4 text-slate-600 font-medium">{u.department || '—'}</td>
                       <td className="py-3.5 px-4">
-                        {u.role === 'admin' ? (
-                          <span className="px-2 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 font-bold text-[10px]">
-                            超级管理员
-                          </span>
-                        ) : u.role === 'supervisor' ? (
-                          <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-bold text-[10px]">
-                            部门主管
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 font-medium text-[10px]">
-                            普通成员
-                          </span>
-                        )}
+                        <div className="flex items-center gap-1.5">
+                          <select
+                            value={u.role}
+                            disabled={isCurrent}
+                            onChange={(e) => handleUpdateUserRole(u.userId, e.target.value as UserRole)}
+                            className={`text-[11px] font-bold px-2 py-1 rounded-md border transition-all ${
+                              u.role === 'admin'
+                                ? 'bg-red-50 text-red-700 border-red-200'
+                                : u.role === 'supervisor'
+                                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                : 'bg-slate-50 text-slate-700 border-slate-200'
+                            } ${isCurrent ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+                            title={isCurrent ? '当前管理员角色不可撤销' : '点击直接调整该用户权限'}
+                          >
+                            <option value="admin">超级管理员 (admin)</option>
+                            <option value="supervisor">部门主管 (supervisor)</option>
+                            <option value="member">普通成员 (member)</option>
+                          </select>
+                        </div>
                       </td>
                       <td className="py-3.5 px-4">
                         <div className="flex flex-wrap gap-1">
@@ -386,13 +464,21 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
                         </div>
                       </td>
                       <td className="py-3.5 px-4 text-slate-500 text-[11px]">{u.device}</td>
-                      <td className="py-3.5 px-4 text-right space-x-2">
+                      <td className="py-3.5 px-4 text-right space-x-1.5 whitespace-nowrap">
+                        <button
+                          onClick={() => handleResetPassword(u.userId, u.username)}
+                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded text-xs transition-colors inline-flex items-center gap-1"
+                          title="重置登录密码"
+                        >
+                          <Key className="w-3 h-3 text-slate-500" />
+                          <span>重设密码</span>
+                        </button>
                         {!isCurrent && (
                           <button
                             onClick={() => onSwitchUser(u)}
                             className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded text-xs transition-colors"
                           >
-                            切换至该账号
+                            切换登录
                           </button>
                         )}
                         {!isCurrent && (
@@ -410,6 +496,321 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Tab: System Permissions & RBAC Matrix */}
+      {activeTab === 'permissions' && (
+        <div className="space-y-6">
+          {/* Top Banner */}
+          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
+            <div className="flex items-center gap-2 mb-2">
+              <ShieldCheck className="w-5 h-5 text-blue-600" />
+              <h3 className="text-sm font-bold text-slate-900">系统权限管理与角色控制策略 (RBAC)</h3>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                策略生效中
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              平台实行严格的角色访问控制（Role-Based Access Control）。除系统管理员外，所有普通成员及部门主管一律禁止查看管理控制平台，同时禁止普通用户在系统内任意切换账号。
+            </p>
+          </div>
+
+          {/* Three Role Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Admin Role Card */}
+            <div className="bg-white rounded-xl border-2 border-red-200 p-4 shadow-xs relative">
+              <div className="flex items-center justify-between mb-3">
+                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-red-100 text-red-800">
+                  超级管理员 (admin)
+                </span>
+                <span className="text-[11px] text-slate-400 font-mono">最高权限</span>
+              </div>
+              <h4 className="text-xs font-bold text-slate-900 mb-2">系统最高控制与权限配置权</h4>
+              <ul className="space-y-1.5 text-xs text-slate-600">
+                <li className="flex items-start gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <span><strong>管理控制台</strong>：独占完全查看与操作权限</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <span><strong>账号切换</strong>：允许在全局账号之间切换调试</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <span><strong>权限管理</strong>：分配与调整任何用户的系统角色</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <span><strong>密码管控</strong>：支持强制重置任意成员账号密码</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <span><strong>协同治理</strong>：群组架构设立与待办跨端共享终审</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <span><strong>品牌自定义</strong>：自定义企业Logo图片与系统名称</span>
+                </li>
+              </ul>
+            </div>
+
+            {/* Supervisor Role Card */}
+            <div className="bg-white rounded-xl border border-blue-200 p-4 shadow-xs">
+              <div className="flex items-center justify-between mb-3">
+                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800">
+                  部门主管 (supervisor)
+                </span>
+                <span className="text-[11px] text-slate-400 font-mono">业务统筹</span>
+              </div>
+              <h4 className="text-xs font-bold text-slate-900 mb-2">群组业务统筹与待办审批权</h4>
+              <ul className="space-y-1.5 text-xs text-slate-600">
+                <li className="flex items-start gap-1.5 text-red-600 font-medium">
+                  <X className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
+                  <span><strong>管理控制台：严禁访问（菜单隐藏）</strong></span>
+                </li>
+                <li className="flex items-start gap-1.5 text-red-600 font-medium">
+                  <X className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
+                  <span><strong>账号切换：严禁切换其他用户账号</strong></span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <span><strong>每日工作</strong>：查看本部门成员共享的任务进展</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <span><strong>协同申请</strong>：审批组内普通成员的待办穿透申请</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <span><strong>数据透视</strong>：标讯穿透分析与8点新闻转发讨论</span>
+                </li>
+              </ul>
+            </div>
+
+            {/* Member Role Card */}
+            <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+              <div className="flex items-center justify-between mb-3">
+                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 text-slate-800">
+                  普通成员 (member)
+                </span>
+                <span className="text-[11px] text-slate-400 font-mono">基层办公</span>
+              </div>
+              <h4 className="text-xs font-bold text-slate-900 mb-2">个人日常业务与组内协作</h4>
+              <ul className="space-y-1.5 text-xs text-slate-600">
+                <li className="flex items-start gap-1.5 text-red-600 font-medium">
+                  <X className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
+                  <span><strong>管理控制台：严禁访问（菜单隐藏）</strong></span>
+                </li>
+                <li className="flex items-start gap-1.5 text-red-600 font-medium">
+                  <X className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
+                  <span><strong>账号切换：严禁切换其他用户账号</strong></span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <span><strong>日常办公</strong>：个人待办、备忘录、记账本</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <span><strong>团队共享</strong>：自主将待办共享至指定所属群组</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <span><strong>标讯新闻</strong>：历史招投标查询与8点早报浏览</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Full RBAC Matrix Table */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+              <h4 className="text-xs font-bold text-slate-800">系统权限详细对比矩阵表</h4>
+              <span className="text-[11px] text-slate-400">实时受控生效</span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 font-bold">
+                  <tr>
+                    <th className="py-3 px-4">系统功能 / 操作控制点</th>
+                    <th className="py-3 px-4 text-center">超级管理员 (admin)</th>
+                    <th className="py-3 px-4 text-center">部门主管 (supervisor)</th>
+                    <th className="py-3 px-4 text-center">普通成员 (member)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  <tr className="hover:bg-slate-50/60">
+                    <td className="py-3 px-4 font-semibold text-slate-900">
+                      查看与操作管理控制台
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                        允许访问
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-bold text-[10px]">
+                        禁止访问 (拦截)
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-bold text-[10px]">
+                        禁止访问 (拦截)
+                      </span>
+                    </td>
+                  </tr>
+
+                  <tr className="hover:bg-slate-50/60">
+                    <td className="py-3 px-4 font-semibold text-slate-900">
+                      快速切换其他人员账号
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                        允许调试切换
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-bold text-[10px]">
+                        严格禁止
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-bold text-[10px]">
+                        严格禁止
+                      </span>
+                    </td>
+                  </tr>
+
+                  <tr className="hover:bg-slate-50/60">
+                    <td className="py-3 px-4 font-semibold text-slate-900">
+                      修改用户角色与系统权限
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                        允许配置
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-bold text-[10px]">
+                        禁止
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-bold text-[10px]">
+                        禁止
+                      </span>
+                    </td>
+                  </tr>
+
+                  <tr className="hover:bg-slate-50/60">
+                    <td className="py-3 px-4 font-semibold text-slate-900">
+                      强制重置账号登录密码
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                        允许重设
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-bold text-[10px]">
+                        禁止
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-bold text-[10px]">
+                        禁止
+                      </span>
+                    </td>
+                  </tr>
+
+                  <tr className="hover:bg-slate-50/60">
+                    <td className="py-3 px-4 font-semibold text-slate-900">
+                      设立群组架构与群成员编组
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                        允许设立与解散
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-bold text-[10px]">
+                        参与组内管理
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-bold text-[10px]">
+                        仅作为成员加入
+                      </span>
+                    </td>
+                  </tr>
+
+                  <tr className="hover:bg-slate-50/60">
+                    <td className="py-3 px-4 font-semibold text-slate-900">
+                      待办共享申请审批 (协同授权)
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                        最高终审权
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold text-[10px]">
+                        本部门初审
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-bold text-[10px]">
+                        发起申请
+                      </span>
+                    </td>
+                  </tr>
+
+                  <tr className="hover:bg-slate-50/60">
+                    <td className="py-3 px-4 font-semibold text-slate-900">
+                      系统名称与企业Logo图片定制
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                        独家全权定制
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-bold text-[10px]">
+                        禁止
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-bold text-[10px]">
+                        禁止
+                      </span>
+                    </td>
+                  </tr>
+
+                  <tr className="hover:bg-slate-50/60">
+                    <td className="py-3 px-4 font-semibold text-slate-900">
+                      日常办公 (待办/备忘/记账/标讯/早报)
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                        完全支持
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                        完全支持
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                        完全支持
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -698,6 +1099,21 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
                   onChange={(e) => setNewUsername(e.target.value)}
                   className="w-full text-xs px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  初始登录密码 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="默认: password123"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full text-xs px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">成员首次登录必须使用该密码，管理员可随时在列表中重置。</p>
               </div>
 
               <div>

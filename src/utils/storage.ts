@@ -20,18 +20,20 @@ export const defaultUsers: UserInfo[] = [
   {
     userId: 'admin_001',
     username: 'admin',
+    password: 'password123',
     displayName: '系统管理员',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
     role: 'admin',
     department: '信息技术与数字化中心',
     groupList: ['grp_01', 'grp_02', 'grp_03'],
-    device: '吉吉办公总控台 (管理端)',
+    device: '办公助手总控台 (管理端)',
     createdAt: '2026-08-01 09:00',
     canManageUsers: true,
   },
   {
     userId: 'user_002',
     username: 'zhang_pm',
+    password: 'password123',
     displayName: '张建国 (项目经理)',
     avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80',
     role: 'supervisor',
@@ -44,6 +46,7 @@ export const defaultUsers: UserInfo[] = [
   {
     userId: 'user_003',
     username: 'li_dev',
+    password: 'password123',
     displayName: '李明 (算法架构师)',
     avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&auto=format&fit=crop&q=80',
     role: 'member',
@@ -56,18 +59,20 @@ export const defaultUsers: UserInfo[] = [
   {
     userId: 'user_004',
     username: 'wang_bid',
+    password: 'password123',
     displayName: '王璐 (招采主管)',
     avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=100&auto=format&fit=crop&q=80',
     role: 'supervisor',
     department: '政企招采部',
     groupList: ['grp_02'],
-    device: '吉吉办公 Web端',
+    device: '办公助手 Web端',
     createdAt: '2026-08-20 11:20',
     canManageUsers: false,
   },
   {
     userId: 'user_005',
     username: 'chen_oa',
+    password: 'password123',
     displayName: '陈晨 (行政专员)',
     avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=100&auto=format&fit=crop&q=80',
     role: 'member',
@@ -111,7 +116,7 @@ export const defaultGroups: UserGroup[] = [
 ];
 
 export const defaultBranding: BrandingConfig = {
-  appName: '吉吉办公',
+  appName: '办公助手',
   logoUrl: '',
   slogan: '跨端协同 · 标讯穿透 · 团队共享中枢',
   updatedAt: '2026-09-06 08:00',
@@ -139,6 +144,7 @@ const STORAGE_KEYS = {
   USERS: 'jj_users_v2',
   GROUPS: 'jj_groups_v2',
   CURRENT_USER_ID: 'jj_current_user_id_v2',
+  IS_LOGGED_IN: 'jj_is_logged_in_v2',
   SHARE_REQUESTS: 'jj_share_requests_v2',
   BRANDING: 'jj_branding_config_v2',
   MODULE_ORDER: 'jj_module_order_v2',
@@ -1179,7 +1185,16 @@ export const getStoredUsers = (): UserInfo[] => {
     return defaultUsers;
   }
   try {
-    return JSON.parse(saved);
+    const parsed: UserInfo[] = JSON.parse(saved);
+    // Ensure all users have a fallback password if migrated
+    const ensured = parsed.map((u) => {
+      const match = defaultUsers.find((du) => du.userId === u.userId || du.username === u.username);
+      return {
+        ...u,
+        password: u.password || match?.password || 'password123',
+      };
+    });
+    return ensured;
   } catch {
     return defaultUsers;
   }
@@ -1187,6 +1202,59 @@ export const getStoredUsers = (): UserInfo[] => {
 
 export const saveStoredUsers = (users: UserInfo[]) => {
   localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+};
+
+// Authentication & Session Management (Requirement: 平台首次需要进行登录使用)
+export const getIsLoggedIn = (): boolean => {
+  return localStorage.getItem(STORAGE_KEYS.IS_LOGGED_IN) === 'true';
+};
+
+export const setIsLoggedIn = (loggedIn: boolean): void => {
+  if (loggedIn) {
+    localStorage.setItem(STORAGE_KEYS.IS_LOGGED_IN, 'true');
+  } else {
+    localStorage.removeItem(STORAGE_KEYS.IS_LOGGED_IN);
+  }
+};
+
+export const authenticateUser = (
+  usernameInput: string,
+  passwordInput: string
+): { success: boolean; user?: UserInfo; message?: string } => {
+  const cleanUser = usernameInput.trim().toLowerCase();
+  const cleanPass = passwordInput.trim();
+
+  if (!cleanUser) {
+    return { success: false, message: '请输入登录账号/用户名' };
+  }
+  if (!cleanPass) {
+    return { success: false, message: '请输入登录密码' };
+  }
+
+  const allUsers = getStoredUsers();
+  const matchedUser = allUsers.find(
+    (u) => u.username.toLowerCase() === cleanUser
+  );
+
+  if (!matchedUser) {
+    return { success: false, message: '该账号不存在，请核对或联系管理员' };
+  }
+
+  const userPassword = matchedUser.password || 'password123';
+  if (userPassword !== cleanPass) {
+    return { success: false, message: '密码输入不正确，请重新输入' };
+  }
+
+  // Set session
+  setIsLoggedIn(true);
+  saveCurrentUser(matchedUser);
+
+  return { success: true, user: matchedUser };
+};
+
+export const logoutUser = (): void => {
+  setIsLoggedIn(false);
+  localStorage.removeItem(STORAGE_KEYS.IS_LOGGED_IN);
 };
 
 export const getStoredGroups = (): UserGroup[] => {

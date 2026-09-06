@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1d4ed8" />
+      <stop offset="50%" stop-color="#2563eb" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#0f172a" flood-opacity="0.3" />
+    </filter>
+  </defs>
+  <!-- Rounded Base -->
+  <rect width="512" height="512" rx="128" fill="url(#blueGrad)" />
+  
+  <!-- Outer border ring -->
+  <rect x="24" y="24" width="464" height="464" rx="104" fill="none" stroke="#ffffff" stroke-opacity="0.2" stroke-width="6" />
+
+  <!-- Stylized Office Building / Double J Efficiency Monogram -->
+  <g filter="url(#shadow)">
+    <!-- First 'J' Column -->
+    <path d="M 170 140 L 220 140 L 220 300 C 220 330 200 350 160 350 C 130 350 110 335 110 310 L 155 310 C 155 318 162 322 172 322 C 185 322 192 315 192 300 L 192 140 Z" fill="#ffffff" />
+    
+    <!-- Second 'J' Column -->
+    <path d="M 285 140 L 335 140 L 335 300 C 335 330 315 350 275 350 C 245 350 225 335 225 310 L 270 310 C 270 318 277 322 287 322 C 300 322 307 315 307 300 L 307 140 Z" fill="#ffffff" />
+    
+    <!-- Top Spark Star (representing smart synergy / AI efficiency) -->
+    <path d="M 370 110 L 380 135 L 405 145 L 380 155 L 370 180 L 360 155 L 335 145 L 360 135 Z" fill="#38bdf8" />
+  </g>
+</svg>

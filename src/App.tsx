@@ -11,6 +11,8 @@ import { HealthModule } from './components/HealthModule';
 import { AdminModule } from './components/AdminModule';
 import { MessageCenterModal } from './components/MessageCenterModal';
 import { AnnualSummaryModal } from './components/AnnualSummaryModal';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { LoginScreen } from './components/LoginScreen';
 
 import {
   ModuleTab,
@@ -58,9 +60,15 @@ import {
   getStoredModuleOrder,
   saveStoredModuleOrder,
   getTodayDateStr,
+  getIsLoggedIn,
+  setIsLoggedIn,
+  logoutUser,
 } from './utils/storage';
 
 export default function App() {
+  // Authentication & Mandatory Login (Requirement: 平台首次需要进行登录使用)
+  const [isLoggedIn, setIsLoggedInState] = useState<boolean>(getIsLoggedIn);
+
   // Navigation State & Module Order (Requirement 3: Drag & Drop Custom Reordering)
   const [activeTab, setActiveTab] = useState<ModuleTab>('tasks');
   const [moduleOrder, setModuleOrder] = useState<ModuleTab[]>(getStoredModuleOrder);
@@ -175,14 +183,25 @@ export default function App() {
     setNotifications((prev) => [newNotif, ...prev]);
   };
 
-  // Switch Current User (Requirement 1 & 6)
+  // Switch Current User (Requirement 1 & 6: only admin can switch user)
   const handleSwitchUser = (selectedUser: UserInfo) => {
+    if (currentUser.role !== 'admin') {
+      alert('权限拦截：普通用户不允许进行账号切换！');
+      return;
+    }
     setCurrentUser(selectedUser);
+    saveCurrentUser(selectedUser);
     addNotification({
       title: '账号已切换',
       content: `当前工作台操作人已切换为【${selectedUser.displayName}】(${selectedUser.department || selectedUser.role})`,
       type: 'system',
     });
+  };
+
+  // Logout Handler (Requirement: 平台首次需要进行登录使用)
+  const handleLogout = () => {
+    logoutUser();
+    setIsLoggedInState(false);
   };
 
   // Forward News to Group Handler (Requirement 4)
@@ -226,6 +245,32 @@ export default function App() {
     setTasks((prev) => [newTask, ...prev]);
   };
 
+  // Enforce: if current non-admin user somehow is on admin tab, redirect to tasks
+  useEffect(() => {
+    if (activeTab === 'admin' && currentUser.role !== 'admin') {
+      setActiveTab('tasks');
+    }
+  }, [activeTab, currentUser.role]);
+
+  // Requirement: Mandatory initial login screen
+  if (!isLoggedIn) {
+    return (
+      <LoginScreen
+        branding={branding}
+        onLoginSuccess={(authedUser) => {
+          setCurrentUser(authedUser);
+          setIsLoggedIn(true);
+          setIsLoggedInState(true);
+          addNotification({
+            title: '欢迎登录系统',
+            content: `你好，${authedUser.displayName}！已成功登录${branding.appName || '办公助手'}。`,
+            type: 'system',
+          });
+        }}
+      />
+    );
+  }
+
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   const todayStr = getTodayDateStr();
@@ -247,6 +292,7 @@ export default function App() {
         setModuleOrder={setModuleOrder}
         isMobileOpen={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
+        onLogout={handleLogout}
       />
 
       {/* Main Area with Header and Content */}
@@ -260,6 +306,7 @@ export default function App() {
           healthScore={currentHealthScore}
           syncStatus={syncStatus}
           onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
+          onLogout={handleLogout}
         />
 
         {/* Scrollable Content Workspace */}
@@ -312,7 +359,7 @@ export default function App() {
               />
             )}
 
-            {/* Requirement 5 & 6: Admin Management Console */}
+            {/* Requirement 5 & 6: Admin Management Console (Admin Only) */}
             {activeTab === 'admin' && (
               <AdminModule
                 currentUser={currentUser}
@@ -330,11 +377,11 @@ export default function App() {
           </div>
         </main>
 
-        {/* Compact Footer (Requirement 5: 吉吉办公) */}
+        {/* Compact Footer */}
         <footer className="bg-white border-t border-slate-200 py-2.5 px-4 sm:px-6 shrink-0">
           <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-1.5">
             <div className="flex items-center gap-2">
-              <span className="font-bold text-slate-800">{branding.appName || '吉吉办公'}</span>
+              <span className="font-bold text-slate-800">{branding.appName || '办公助手'}</span>
               <span>·</span>
               <span>{branding.slogan || '跨端多用户协同与个人效率中枢'}</span>
               <span>·</span>
@@ -348,13 +395,17 @@ export default function App() {
               >
                 年终总结生成
               </button>
-              <span>·</span>
-              <button
-                onClick={() => setActiveTab('admin')}
-                className="hover:text-blue-600 text-blue-600 font-semibold transition-colors"
-              >
-                管理中心
-              </button>
+              {currentUser.role === 'admin' && (
+                <>
+                  <span>·</span>
+                  <button
+                    onClick={() => setActiveTab('admin')}
+                    className="hover:text-blue-600 text-blue-600 font-semibold transition-colors"
+                  >
+                    管理控制台
+                  </button>
+                </>
+              )}
               <span>·</span>
               <span>
                 当前操作人：<strong>{currentUser.displayName}</strong> ({currentUser.username})
@@ -379,6 +430,9 @@ export default function App() {
         memos={memos}
         healthRecords={healthRecords}
       />
+
+      {/* Offline Status Connectivity Banner */}
+      <OfflineIndicator />
     </div>
   );
 }
