@@ -27,6 +27,8 @@ import {
   Lock,
   Unlock,
   CheckCheck,
+  FolderPlus,
+  ShieldCheck,
 } from 'lucide-react';
 import { TaskItem, TaskLog, UserInfo, UserGroup, GroupShareRequest } from '../types';
 import {
@@ -44,7 +46,9 @@ interface TaskModuleProps {
   setTasks: React.Dispatch<React.SetStateAction<TaskItem[]>>;
   currentUser: UserInfo;
   users: UserInfo[];
+  setUsers?: React.Dispatch<React.SetStateAction<UserInfo[]>>;
   groups: UserGroup[];
+  setGroups?: React.Dispatch<React.SetStateAction<UserGroup[]>>;
   shareRequests: GroupShareRequest[];
   setShareRequests: React.Dispatch<React.SetStateAction<GroupShareRequest[]>>;
   onTasksChanged?: () => void;
@@ -55,12 +59,66 @@ export const TaskModule: React.FC<TaskModuleProps> = ({
   setTasks,
   currentUser,
   users,
+  setUsers,
   groups,
+  setGroups,
   shareRequests,
   setShareRequests,
   onTasksChanged,
 }) => {
   const [selectedDate, setSelectedDate] = useState<string>(getTodayDateStr());
+
+  // Check if current user has permission to create/manage groups (Admin or Supervisor with delegated permission)
+  const canCreateGroup =
+    currentUser.role === 'admin' ||
+    (currentUser.role === 'supervisor' && currentUser.permissions?.canManageGroups !== false);
+
+  // Supervisor Group Creation Modal state
+  const [showSupervisorCreateGroupModal, setShowSupervisorCreateGroupModal] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupDesc, setNewGroupDesc] = useState('');
+  const [newGroupColor, setNewGroupColor] = useState('blue');
+  const [newGroupMemberIds, setNewGroupMemberIds] = useState<string[]>([currentUser.userId]);
+  const [groupCreateToast, setGroupCreateToast] = useState('');
+
+  // Handle Supervisor Create Group
+  const handleSupervisorCreateGroup = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newGroupName.trim()) return;
+
+    const newGroup: UserGroup = {
+      id: `group_${Date.now().toString().slice(-6)}`,
+      name: newGroupName.trim(),
+      description: newGroupDesc.trim() || `${currentUser.department || '部门'} 专项工作组`,
+      color: newGroupColor,
+      leaderId: currentUser.userId,
+      leaderName: currentUser.displayName,
+      memberIds: Array.from(new Set([...newGroupMemberIds, currentUser.userId])),
+      createdAt: new Date().toISOString().slice(0, 10),
+    };
+
+    if (setGroups) {
+      setGroups((prev) => [...prev, newGroup]);
+    }
+
+    if (setUsers) {
+      setUsers((prevUsers) =>
+        prevUsers.map((u) => {
+          if (newGroup.memberIds.includes(u.userId) && !u.groupList.includes(newGroup.id)) {
+            return { ...u, groupList: [...u.groupList, newGroup.id] };
+          }
+          return u;
+        })
+      );
+    }
+
+    setGroupCreateToast(`项目组【${newGroupName}】已通过主管下放权限成功设立并投入协同！`);
+    setTimeout(() => setGroupCreateToast(''), 3500);
+    setShowSupervisorCreateGroupModal(false);
+    setNewGroupName('');
+    setNewGroupDesc('');
+    setNewGroupMemberIds([currentUser.userId]);
+  };
 
   // Task Filter state (Requirement 1: Multi-account & Group collaboration)
   const [activeFilterTab, setActiveFilterTab] = useState<string>('all'); // 'all' | 'mine' | 'shared' | groupId
@@ -419,8 +477,18 @@ export const TaskModule: React.FC<TaskModuleProps> = ({
     setCopiedReport(false);
   };
 
+  // Permission check for report export
+  const canExportReports =
+    currentUser.role === 'admin' ||
+    (currentUser.role === 'supervisor' && currentUser.permissions?.canExportReports !== false) ||
+    (currentUser.role === 'member' && currentUser.permissions?.canExportReports === true);
+
   // 7. Export Weekly Report
   const handleExportWeeklyReport = () => {
+    if (!canExportReports) {
+      alert('抱歉，当前账号尚未获得部门周度协同报表导出权限，请联系部门主管或超级管理员开通！');
+      return;
+    }
     const report = generateWeeklyReportMd(selectedDate, tasks);
     downloadTextFile(`吉吉办公_周工作汇总_${selectedDate}.md`, report);
   };
@@ -510,11 +578,35 @@ export const TaskModule: React.FC<TaskModuleProps> = ({
 
             <button
               onClick={handleExportWeeklyReport}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg shadow-2xs transition-colors"
+              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border rounded-lg shadow-2xs transition-colors ${
+                canExportReports
+                  ? 'text-slate-700 bg-white hover:bg-slate-50 border-slate-300'
+                  : 'text-slate-400 bg-slate-100 border-slate-200 cursor-not-allowed'
+              }`}
+              title={canExportReports ? '导出本周工作报表 Markdown' : '未获授权 (需主管或管理员配置)'}
             >
-              <Download className="w-3.5 h-3.5 text-indigo-600" />
+              <Download className={`w-3.5 h-3.5 ${canExportReports ? 'text-indigo-600' : 'text-slate-400'}`} />
               <span>周汇总导出 (.md)</span>
+              {!canExportReports && <Lock className="w-3 h-3 text-slate-400 ml-0.5" />}
             </button>
+
+            {/* Supervisor Delegated Group Creation (Requirement: 设置群组的权限可以下放至部门主管) */}
+            {canCreateGroup && (
+              <button
+                onClick={() => setShowSupervisorCreateGroupModal(true)}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg shadow-2xs transition-colors"
+                title={
+                  currentUser.role === 'admin'
+                    ? '管理员快速设立业务项目协同组'
+                    : '部门主管下放特权：自主设立项目协同组'
+                }
+              >
+                <FolderPlus className="w-3.5 h-3.5 text-emerald-600" />
+                <span>
+                  {currentUser.role === 'supervisor' ? '设立项目组(主管下放)' : '设立协同组'}
+                </span>
+              </button>
+            )}
 
             <button
               onClick={() => {
@@ -528,6 +620,22 @@ export const TaskModule: React.FC<TaskModuleProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Group creation success notification toast */}
+        {groupCreateToast && (
+          <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs flex items-center justify-between">
+            <span className="font-semibold flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+              {groupCreateToast}
+            </span>
+            <button
+              onClick={() => setGroupCreateToast('')}
+              className="text-emerald-600 hover:text-emerald-800 text-xs ml-2"
+            >
+              关闭
+            </button>
+          </div>
+        )}
 
         {/* Task KPI bar */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-100">
@@ -1217,6 +1325,148 @@ export const TaskModule: React.FC<TaskModuleProps> = ({
                 <span>{copiedReport ? '已复制至剪贴板' : '一键复制文本'}</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 5: Supervisor Delegated Create Group Modal */}
+      {showSupervisorCreateGroupModal && canCreateGroup && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <FolderPlus className="w-5 h-5 text-emerald-600" />
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">设立业务协同攻坚群组</h3>
+                  <p className="text-[11px] text-emerald-700 font-medium">
+                    {currentUser.role === 'admin'
+                      ? '系统管理员特权设立'
+                      : '部门主管权限下放：自主组建项目攻坚团队'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowSupervisorCreateGroupModal(false)}
+                className="text-xs text-slate-400 hover:text-slate-600 p-1"
+              >
+                关闭
+              </button>
+            </div>
+
+            <form onSubmit={handleSupervisorCreateGroup} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  群组名称 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="例如: 智慧园区招采攻坚组 / 医疗云专班"
+                  value={newGroupName}
+                  onChange={(e) => setNewGroupName(e.target.value)}
+                  className="w-full text-xs px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  业务职能描述 / 协同目标
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="例如: 负责全流程投标攻坚、技术交底与现场述标协同"
+                  value={newGroupDesc}
+                  onChange={(e) => setNewGroupDesc(e.target.value)}
+                  className="w-full text-xs px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">群组主题色</label>
+                <div className="flex items-center gap-3">
+                  {[
+                    { label: '翡翠绿', val: 'emerald' },
+                    { label: '经典蓝', val: 'blue' },
+                    { label: '科技靛', val: 'indigo' },
+                    { label: '琥珀橙', val: 'amber' },
+                    { label: '玫瑰红', val: 'rose' },
+                  ].map((c) => (
+                    <label key={c.val} className="flex items-center gap-1 text-xs text-slate-700 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="groupColor"
+                        value={c.val}
+                        checked={newGroupColor === c.val}
+                        onChange={(e) => setNewGroupColor(e.target.value)}
+                        className="text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <span>{c.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    选择组内成员 (同部门/协同人员)
+                  </label>
+                  <span className="text-[10px] text-slate-400">已选 {newGroupMemberIds.length} 人</span>
+                </div>
+                <div className="space-y-1.5 max-h-36 overflow-y-auto border border-slate-200 rounded-lg p-2.5 bg-slate-50">
+                  {users.map((u) => {
+                    const isSelf = u.userId === currentUser.userId;
+                    return (
+                      <label
+                        key={u.userId}
+                        className={`flex items-center justify-between text-xs p-1.5 rounded hover:bg-white cursor-pointer ${
+                          isSelf ? 'opacity-70 cursor-not-allowed' : ''
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            disabled={isSelf}
+                            checked={newGroupMemberIds.includes(u.userId) || isSelf}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setNewGroupMemberIds([...newGroupMemberIds, u.userId]);
+                              } else {
+                                setNewGroupMemberIds(newGroupMemberIds.filter((id) => id !== u.userId));
+                              }
+                            }}
+                            className="rounded text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <span className="font-medium text-slate-800">{u.displayName}</span>
+                          <span className="text-[10px] text-slate-400">({u.department || '未分配部门'})</span>
+                        </div>
+                        {isSelf && (
+                          <span className="text-[9px] px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded font-semibold">
+                            组长 (本人)
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowSupervisorCreateGroupModal(false)}
+                  className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
+                >
+                  确认设立并启用
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

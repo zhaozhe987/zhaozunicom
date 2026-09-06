@@ -24,7 +24,16 @@ import {
   ShieldCheck,
   Sliders,
 } from 'lucide-react';
-import { UserInfo, UserGroup, GroupShareRequest, BrandingConfig, UserRole } from '../types';
+import {
+  UserInfo,
+  UserGroup,
+  GroupShareRequest,
+  BrandingConfig,
+  UserRole,
+  PRESET_DEPARTMENTS,
+  PresetDepartment,
+  UserPermissions,
+} from '../types';
 
 interface AdminModuleProps {
   currentUser: UserInfo;
@@ -59,8 +68,117 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
   const [newPassword, setNewPassword] = useState('password123');
   const [newDisplayName, setNewDisplayName] = useState('');
   const [newRole, setNewRole] = useState<UserRole>('member');
-  const [newDepartment, setNewDepartment] = useState('');
+  const [newDepartment, setNewDepartment] = useState<string>(PRESET_DEPARTMENTS[0]);
   const [newSelectedGroups, setNewSelectedGroups] = useState<string[]>([]);
+  const [newSupervisorPermissions, setNewSupervisorPermissions] = useState<UserPermissions>({
+    canManageGroups: true, // 默认下放群组设立权限至主管
+    canApproveShare: true,
+    canExportReports: true,
+    canManageDepartmentMembers: true,
+    canViewAllTenders: true,
+  });
+
+  // Edit user modal & state (Requirement 1 & 2)
+  const [showEditUserModal, setShowEditUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<UserInfo | null>(null);
+  const [editDisplayName, setEditDisplayName] = useState('');
+  const [editDepartment, setEditDepartment] = useState<string>(PRESET_DEPARTMENTS[0]);
+  const [editRole, setEditRole] = useState<UserRole>('member');
+  const [editSelectedGroups, setEditSelectedGroups] = useState<string[]>([]);
+  const [editPermissions, setEditPermissions] = useState<UserPermissions>({
+    canManageGroups: true,
+    canApproveShare: true,
+    canExportReports: true,
+    canManageDepartmentMembers: true,
+    canViewAllTenders: true,
+  });
+
+  // Success toast for edits
+  const [actionSuccessMsg, setActionSuccessMsg] = useState('');
+  const showToast = (msg: string) => {
+    setActionSuccessMsg(msg);
+    setTimeout(() => setActionSuccessMsg(''), 3000);
+  };
+
+  // Open Edit User Modal
+  const handleOpenEditUser = (user: UserInfo) => {
+    setEditingUser(user);
+    setEditDisplayName(user.displayName);
+    setEditDepartment(user.department || PRESET_DEPARTMENTS[0]);
+    setEditRole(user.role);
+    setEditSelectedGroups(user.groupList || []);
+    setEditPermissions({
+      canManageGroups: user.permissions?.canManageGroups ?? (user.role === 'admin' || user.role === 'supervisor'),
+      canApproveShare: user.permissions?.canApproveShare ?? (user.role === 'admin' || user.role === 'supervisor'),
+      canExportReports: user.permissions?.canExportReports ?? (user.role === 'admin' || user.role === 'supervisor'),
+      canManageDepartmentMembers: user.permissions?.canManageDepartmentMembers ?? (user.role === 'admin'),
+      canViewAllTenders: user.permissions?.canViewAllTenders ?? true,
+    });
+    setShowEditUserModal(true);
+  };
+
+  // Save Edit User
+  const handleSaveEditUser = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    if (editingUser.userId === currentUser.userId && editRole !== 'admin') {
+      alert('操作拦截：不能撤销当前登录超级管理员自己的 admin 权限！');
+      return;
+    }
+
+    const updatedUsers = users.map((u) => {
+      if (u.userId !== editingUser.userId) return u;
+      return {
+        ...u,
+        displayName: editDisplayName.trim() || u.displayName,
+        department: editDepartment.trim() || u.department,
+        role: editRole,
+        groupList: editSelectedGroups,
+        canManageUsers: editRole === 'admin',
+        permissions: editPermissions,
+      };
+    });
+
+    setUsers(updatedUsers);
+
+    // Sync group membership
+    setGroups((prev) =>
+      prev.map((g) => {
+        const inSelected = editSelectedGroups.includes(g.id);
+        const inGroup = g.memberIds.includes(editingUser.userId);
+        if (inSelected && !inGroup) {
+          return { ...g, memberIds: [...g.memberIds, editingUser.userId] };
+        }
+        if (!inSelected && inGroup) {
+          return { ...g, memberIds: g.memberIds.filter((id) => id !== editingUser.userId) };
+        }
+        return g;
+      })
+    );
+
+    setShowEditUserModal(false);
+    setEditingUser(null);
+    showToast(`成员【${editDisplayName}】所属部门、项目组及权限已成功更新`);
+  };
+
+  // Toggle specific supervisor permission directly
+  const handleToggleSupervisorPermission = (userId: string, permKey: keyof UserPermissions) => {
+    setUsers((prev) =>
+      prev.map((u) => {
+        if (u.userId !== userId) return u;
+        const currentVal = u.permissions?.[permKey] ?? (u.role === 'admin' || u.role === 'supervisor');
+        const updatedPerms: UserPermissions = {
+          ...(u.permissions || {}),
+          [permKey]: !currentVal,
+        };
+        return {
+          ...u,
+          permissions: updatedPerms,
+        };
+      })
+    );
+    showToast('主管特权与下放权限配置已实时生效');
+  };
 
   // New group form state
   const [showAddGroupModal, setShowAddGroupModal] = useState(false);
@@ -366,19 +484,27 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
         </button>
       </div>
 
+      {/* Action Notification Toast */}
+      {actionSuccessMsg && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-semibold text-emerald-800 flex items-center gap-2 shadow-xs transition-all">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{actionSuccessMsg}</span>
+        </div>
+      )}
+
       {/* Tab 1: Users Management */}
       {activeTab === 'users' && (
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
-          <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+          <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h3 className="text-sm font-bold text-slate-800">系统分配账号列表</h3>
+              <h3 className="text-sm font-bold text-slate-800">系统分配账号与人员组织架构</h3>
               <p className="text-xs text-slate-400">
-                可为不同岗位成员分配独立工作账号、赋予角色并在右上角即时切换演示
+                支持在线修改人员所属部门（政企要客/政企企业/政企商企）、所属项目组及主管特权增减
               </p>
             </div>
             <button
               onClick={() => setShowAddUserModal(true)}
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs flex items-center gap-1.5 transition-colors"
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs flex items-center gap-1.5 transition-colors shrink-0"
             >
               <UserPlus className="w-3.5 h-3.5" />
               <span>分配新账号</span>
@@ -390,17 +516,20 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
               <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[11px] border-b border-slate-200">
                 <tr>
                   <th className="py-3 px-4">成员姓名 / 用户名</th>
-                  <th className="py-3 px-4">所属部门</th>
-                  <th className="py-3 px-4">角色权限</th>
-                  <th className="py-3 px-4">所属群组</th>
+                  <th className="py-3 px-4">所属部门 (预设分类)</th>
+                  <th className="py-3 px-4">角色与权限状态</th>
+                  <th className="py-3 px-4">所属项目组</th>
                   <th className="py-3 px-4">当前设备</th>
-                  <th className="py-3 px-4 text-right">操作</th>
+                  <th className="py-3 px-4 text-right">权限与操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {users.map((u) => {
                   const userGroups = groups.filter((g) => u.groupList.includes(g.id));
                   const isCurrent = u.userId === currentUser.userId;
+                  const isSupervisor = u.role === 'supervisor';
+                  const canManageGroups = u.permissions?.canManageGroups !== false;
+
                   return (
                     <tr key={u.userId} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-3.5 px-4">
@@ -425,26 +554,62 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
                           </div>
                         </div>
                       </td>
-                      <td className="py-3.5 px-4 text-slate-600 font-medium">{u.department || '—'}</td>
                       <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-1.5">
-                          <select
-                            value={u.role}
-                            disabled={isCurrent}
-                            onChange={(e) => handleUpdateUserRole(u.userId, e.target.value as UserRole)}
-                            className={`text-[11px] font-bold px-2 py-1 rounded-md border transition-all ${
-                              u.role === 'admin'
-                                ? 'bg-red-50 text-red-700 border-red-200'
-                                : u.role === 'supervisor'
-                                ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                : 'bg-slate-50 text-slate-700 border-slate-200'
-                            } ${isCurrent ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
-                            title={isCurrent ? '当前管理员角色不可撤销' : '点击直接调整该用户权限'}
-                          >
-                            <option value="admin">超级管理员 (admin)</option>
-                            <option value="supervisor">部门主管 (supervisor)</option>
-                            <option value="member">普通成员 (member)</option>
-                          </select>
+                        {u.department === '政企要客部' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                            政企要客部
+                          </span>
+                        ) : u.department === '政企企业部' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                            政企企业部
+                          </span>
+                        ) : u.department === '政企商企部' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            政企商企部
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                            {u.department || '未指定部门'}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5">
+                            <select
+                              value={u.role}
+                              disabled={isCurrent}
+                              onChange={(e) => handleUpdateUserRole(u.userId, e.target.value as UserRole)}
+                              className={`text-[11px] font-bold px-2 py-1 rounded-md border transition-all ${
+                                u.role === 'admin'
+                                  ? 'bg-red-50 text-red-700 border-red-200'
+                                  : u.role === 'supervisor'
+                                  ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                  : 'bg-slate-50 text-slate-700 border-slate-200'
+                              } ${isCurrent ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+                              title={isCurrent ? '当前管理员角色不可撤销' : '点击直接调整该用户权限'}
+                            >
+                              <option value="admin">超级管理员 (admin)</option>
+                              <option value="supervisor">部门主管 (supervisor)</option>
+                              <option value="member">普通成员 (member)</option>
+                            </select>
+                          </div>
+                          {isSupervisor && (
+                            <div className="flex items-center gap-1">
+                              {canManageGroups ? (
+                                <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                                  ✓ 群组管理权已下放
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-medium">
+                                  ✕ 未下放群组权
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </td>
                       <td className="py-3.5 px-4">
@@ -464,19 +629,27 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
                         </div>
                       </td>
                       <td className="py-3.5 px-4 text-slate-500 text-[11px]">{u.device}</td>
-                      <td className="py-3.5 px-4 text-right space-x-1.5 whitespace-nowrap">
+                      <td className="py-3.5 px-4 text-right space-x-1 whitespace-nowrap">
+                        <button
+                          onClick={() => handleOpenEditUser(u)}
+                          className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded text-xs transition-colors inline-flex items-center gap-1"
+                          title="修改所属部门、项目组与增减权限"
+                        >
+                          <Edit className="w-3 h-3 text-indigo-600" />
+                          <span>修改部门/组/权限</span>
+                        </button>
                         <button
                           onClick={() => handleResetPassword(u.userId, u.username)}
                           className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded text-xs transition-colors inline-flex items-center gap-1"
                           title="重置登录密码"
                         >
                           <Key className="w-3 h-3 text-slate-500" />
-                          <span>重设密码</span>
+                          <span>密码</span>
                         </button>
                         {!isCurrent && (
                           <button
                             onClick={() => onSwitchUser(u)}
-                            className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded text-xs transition-colors"
+                            className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded text-xs transition-colors"
                           >
                             切换登录
                           </button>
@@ -735,8 +908,8 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
                       </span>
                     </td>
                     <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-bold text-[10px]">
-                        参与组内管理
+                      <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold text-[10px]">
+                        可下放至部门主管 (受控开关)
                       </span>
                     </td>
                     <td className="py-3 px-4 text-center">
@@ -810,6 +983,190 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
                   </tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+
+          {/* Supervisor Specific Permissions & Delegation Management Section */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+            <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-blue-600" />
+                  <h4 className="text-xs font-bold text-slate-800">各部门主管特权动态增减与群组管理权下放管控区</h4>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  支持在线对政企要客、政企企业、政企商企等各部门主管权限进行精细化增减，包括设立群组权限下放
+                </p>
+              </div>
+              <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-semibold border border-blue-200">
+                实时控制 · 即时生效
+              </span>
+            </div>
+
+            <div className="p-4 divide-y divide-slate-100 space-y-4">
+              {users
+                .filter((u) => u.role === 'supervisor')
+                .map((sp) => {
+                  const perms = sp.permissions || {
+                    canManageGroups: true,
+                    canApproveShare: true,
+                    canExportReports: true,
+                    canManageDepartmentMembers: true,
+                    canViewAllTenders: true,
+                  };
+                  const spGroups = groups.filter((g) => sp.groupList.includes(g.id));
+
+                  return (
+                    <div key={sp.userId} className="pt-4 first:pt-0 space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-800 font-bold flex items-center justify-center text-sm border border-blue-200 overflow-hidden">
+                            {sp.avatar ? (
+                              <img src={sp.avatar} alt={sp.displayName} className="w-full h-full object-cover" />
+                            ) : (
+                              sp.displayName.slice(0, 1)
+                            )}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-slate-800 text-xs">{sp.displayName}</span>
+                              <span className="text-[10px] font-mono text-slate-400">@{sp.username}</span>
+                              {sp.department === '政企要客部' ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                                  政企要客部
+                                </span>
+                              ) : sp.department === '政企企业部' ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                                  政企企业部
+                                </span>
+                              ) : sp.department === '政企商企部' ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  政企商企部
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                                  {sp.department || '未分配部门'}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-slate-500 mt-0.5">
+                              关联项目组: {spGroups.length > 0 ? spGroups.map((g) => g.name).join('、') : '暂未加入项目组'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => handleOpenEditUser(sp)}
+                          className="px-2.5 py-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors inline-flex items-center gap-1 self-start sm:self-auto"
+                        >
+                          <Edit className="w-3 h-3" />
+                          <span>修改部门 / 所属项目组</span>
+                        </button>
+                      </div>
+
+                      {/* Permission toggle buttons */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 bg-slate-50 p-3 rounded-lg border border-slate-100">
+                        {/* 1. canManageGroups */}
+                        <div className="bg-white p-2.5 rounded-md border border-slate-200 flex items-center justify-between gap-2">
+                          <div>
+                            <p className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                              群组设立与管理权
+                              <span className="px-1 text-[9px] bg-emerald-100 text-emerald-800 rounded font-semibold">权限下放</span>
+                            </p>
+                            <p className="text-[10px] text-slate-400">允许主管设立项目组与调配组员</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleSupervisorPermission(sp.userId, 'canManageGroups')}
+                            className={`px-2 py-1 rounded text-[11px] font-bold transition-all ${
+                              perms.canManageGroups
+                                ? 'bg-emerald-600 text-white shadow-xs hover:bg-emerald-700'
+                                : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                            }`}
+                          >
+                            {perms.canManageGroups ? '已下放' : '已收回'}
+                          </button>
+                        </div>
+
+                        {/* 2. canApproveShare */}
+                        <div className="bg-white p-2.5 rounded-md border border-slate-200 flex items-center justify-between gap-2">
+                          <div>
+                            <p className="text-xs font-bold text-slate-800">跨部门待办共享审批</p>
+                            <p className="text-[10px] text-slate-400">初审本部门与其他部门共享申请</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleSupervisorPermission(sp.userId, 'canApproveShare')}
+                            className={`px-2 py-1 rounded text-[11px] font-bold transition-all ${
+                              perms.canApproveShare
+                                ? 'bg-blue-600 text-white shadow-xs hover:bg-blue-700'
+                                : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                            }`}
+                          >
+                            {perms.canApproveShare ? '允许审批' : '关闭权限'}
+                          </button>
+                        </div>
+
+                        {/* 3. canExportReports */}
+                        <div className="bg-white p-2.5 rounded-md border border-slate-200 flex items-center justify-between gap-2">
+                          <div>
+                            <p className="text-xs font-bold text-slate-800">部门业务报表导出</p>
+                            <p className="text-[10px] text-slate-400">导出本部门待办/协同统计数据</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleSupervisorPermission(sp.userId, 'canExportReports')}
+                            className={`px-2 py-1 rounded text-[11px] font-bold transition-all ${
+                              perms.canExportReports
+                                ? 'bg-blue-600 text-white shadow-xs hover:bg-blue-700'
+                                : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                            }`}
+                          >
+                            {perms.canExportReports ? '允许导出' : '禁止导出'}
+                          </button>
+                        </div>
+
+                        {/* 4. canManageDepartmentMembers */}
+                        <div className="bg-white p-2.5 rounded-md border border-slate-200 flex items-center justify-between gap-2">
+                          <div>
+                            <p className="text-xs font-bold text-slate-800">部门成员架构维护</p>
+                            <p className="text-[10px] text-slate-400">协助管理员分配部门内日常工作</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleSupervisorPermission(sp.userId, 'canManageDepartmentMembers')}
+                            className={`px-2 py-1 rounded text-[11px] font-bold transition-all ${
+                              perms.canManageDepartmentMembers
+                                ? 'bg-blue-600 text-white shadow-xs hover:bg-blue-700'
+                                : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                            }`}
+                          >
+                            {perms.canManageDepartmentMembers ? '允许维护' : '关闭权限'}
+                          </button>
+                        </div>
+
+                        {/* 5. canViewAllTenders */}
+                        <div className="bg-white p-2.5 rounded-md border border-slate-200 flex items-center justify-between gap-2">
+                          <div>
+                            <p className="text-xs font-bold text-slate-800">全量政企标讯穿透检索</p>
+                            <p className="text-[10px] text-slate-400">跨部门穿透查看政企招采中标数据</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleSupervisorPermission(sp.userId, 'canViewAllTenders')}
+                            className={`px-2 py-1 rounded text-[11px] font-bold transition-all ${
+                              perms.canViewAllTenders
+                                ? 'bg-blue-600 text-white shadow-xs hover:bg-blue-700'
+                                : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                            }`}
+                          >
+                            {perms.canViewAllTenders ? '允许穿透' : '限本组'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
             </div>
           </div>
         </div>
@@ -1131,10 +1488,28 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">所属部门</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  所属部门 (系统预设三大部门) <span className="text-red-500">*</span>
+                </label>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {PRESET_DEPARTMENTS.map((dept) => (
+                    <button
+                      key={dept}
+                      type="button"
+                      onClick={() => setNewDepartment(dept)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
+                        newDepartment === dept
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {dept}
+                    </button>
+                  ))}
+                </div>
                 <input
                   type="text"
-                  placeholder="例如: 智慧城市实施部"
+                  placeholder="或自定义输入部门名称"
                   value={newDepartment}
                   onChange={(e) => setNewDepartment(e.target.value)}
                   className="w-full text-xs px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1149,14 +1524,70 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
                   className="w-full text-xs px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="member">普通成员 (日常办公/查看组内共享)</option>
-                  <option value="supervisor">部门主管 (可发起组内协同/导出报表)</option>
-                  <option value="admin">超级管理员 (拥有账号分配与品牌配置权)</option>
+                  <option value="supervisor">部门主管 (可下放设立群组/导出报表/协同初审)</option>
+                  <option value="admin">超级管理员 (拥有系统级最高控制与配置权)</option>
                 </select>
               </div>
 
+              {/* If creating supervisor, allow toggling delegation options upfront */}
+              {newRole === 'supervisor' && (
+                <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg space-y-2">
+                  <p className="text-xs font-bold text-blue-900 flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                    <span>主管权限与下放开关预设</span>
+                  </p>
+                  <div className="space-y-1.5 text-xs text-slate-700">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newSupervisorPermissions.canManageGroups}
+                        onChange={(e) =>
+                          setNewSupervisorPermissions({
+                            ...newSupervisorPermissions,
+                            canManageGroups: e.target.checked,
+                          })
+                        }
+                        className="rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="font-semibold text-slate-800">
+                        下放群组设立与管理权 (允许主管自主建组)
+                      </span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newSupervisorPermissions.canApproveShare}
+                        onChange={(e) =>
+                          setNewSupervisorPermissions({
+                            ...newSupervisorPermissions,
+                            canApproveShare: e.target.checked,
+                          })
+                        }
+                        className="rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>允许审批跨部门待办共享申请</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newSupervisorPermissions.canExportReports}
+                        onChange={(e) =>
+                          setNewSupervisorPermissions({
+                            ...newSupervisorPermissions,
+                            canExportReports: e.target.checked,
+                          })
+                        }
+                        className="rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>允许导出部门周度协同报表</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  加入的群组 (可多选)
+                  加入的项目组 (可多选)
                 </label>
                 <div className="space-y-1.5 max-h-32 overflow-y-auto border border-slate-200 rounded-lg p-2 bg-slate-50">
                   {groups.map((g) => (
@@ -1192,6 +1623,272 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
                   className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs"
                 >
                   确认分配账号
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit User Modal: Supports modifying Department, Project Groups and Supervisor Permissions */}
+      {showEditUserModal && editingUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-xl max-w-lg w-full p-5 border border-slate-200 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                  <Sliders className="w-4 h-4 text-indigo-600" />
+                  <span>修改人员所属部门、项目组与权限配置</span>
+                </h3>
+                <p className="text-[11px] text-slate-400 mt-0.5 font-mono">
+                  账号: @{editingUser.username} · ID: {editingUser.userId}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowEditUserModal(false);
+                  setEditingUser(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditUser} className="space-y-4">
+              {/* Display Name */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  人员姓名与岗位职务 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editDisplayName}
+                  onChange={(e) => setEditDisplayName(e.target.value)}
+                  className="w-full text-xs px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              {/* Department: Presets + custom */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  所属部门 (系统预设三大部门) <span className="text-red-500">*</span>
+                </label>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {PRESET_DEPARTMENTS.map((dept) => (
+                    <button
+                      key={dept}
+                      type="button"
+                      onClick={() => setEditDepartment(dept)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
+                        editDepartment === dept
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {dept}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  required
+                  placeholder="或输入其他部门名称"
+                  value={editDepartment}
+                  onChange={(e) => setEditDepartment(e.target.value)}
+                  className="w-full text-xs px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              {/* Role Selection */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">系统角色身份</label>
+                <select
+                  value={editRole}
+                  disabled={editingUser.userId === currentUser.userId}
+                  onChange={(e) => setEditRole(e.target.value as UserRole)}
+                  className="w-full text-xs px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="member">普通成员 (member)</option>
+                  <option value="supervisor">部门主管 (supervisor)</option>
+                  <option value="admin">超级管理员 (admin)</option>
+                </select>
+                {editingUser.userId === currentUser.userId && (
+                  <p className="text-[10px] text-amber-600 mt-1">当前登录管理员自身的角色不可更改</p>
+                )}
+              </div>
+
+              {/* Project Groups */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    所属业务项目组 (可多选分配)
+                  </label>
+                  <span className="text-[10px] text-slate-400">已选 {editSelectedGroups.length} 个项目组</span>
+                </div>
+                <div className="space-y-1.5 max-h-36 overflow-y-auto border border-slate-200 rounded-lg p-2.5 bg-slate-50">
+                  {groups.length === 0 ? (
+                    <p className="text-xs text-slate-400">暂无可选群组</p>
+                  ) : (
+                    groups.map((g) => (
+                      <label
+                        key={g.id}
+                        className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer hover:text-indigo-600"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={editSelectedGroups.includes(g.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setEditSelectedGroups([...editSelectedGroups, g.id]);
+                            } else {
+                              setEditSelectedGroups(editSelectedGroups.filter((id) => id !== g.id));
+                            }
+                          }}
+                          className="rounded text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span className="font-medium">{g.name}</span>
+                        <span className="text-[10px] text-slate-400">({g.memberIds.length}人)</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Supervisor Specific Permissions Section (Increment / Decrement) */}
+              {(editRole === 'supervisor' || editRole === 'admin') && (
+                <div className="p-3.5 bg-indigo-50/60 border border-indigo-200 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-indigo-600" />
+                      <span>主管特权增减与下放管控配置</span>
+                    </h4>
+                    <span className="text-[10px] text-indigo-700 font-semibold">精准控制</span>
+                  </div>
+
+                  <div className="space-y-2 text-xs">
+                    {/* canManageGroups: 群组设立权下放 */}
+                    <label className="flex items-start gap-2.5 p-2 bg-white rounded-lg border border-indigo-100 cursor-pointer hover:border-indigo-300 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={editPermissions.canManageGroups}
+                        onChange={(e) =>
+                          setEditPermissions({ ...editPermissions, canManageGroups: e.target.checked })
+                        }
+                        className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <div>
+                        <p className="font-bold text-slate-800 flex items-center gap-1">
+                          群组设立与管理权（权限下放至主管）
+                          <span className="px-1 text-[9px] bg-emerald-100 text-emerald-800 rounded font-bold">
+                            核心功能
+                          </span>
+                        </p>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          勾选后，该部门主管可在每日工作协同中自主设立专项攻坚组、配置组员
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* canApproveShare */}
+                    <label className="flex items-start gap-2.5 p-2 bg-white rounded-lg border border-indigo-100 cursor-pointer hover:border-indigo-300 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={editPermissions.canApproveShare}
+                        onChange={(e) =>
+                          setEditPermissions({ ...editPermissions, canApproveShare: e.target.checked })
+                        }
+                        className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <div>
+                        <p className="font-bold text-slate-800">跨部门待办共享初审权</p>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          允许主管审批本部门与其他部门间的工作共享申请
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* canExportReports */}
+                    <label className="flex items-start gap-2.5 p-2 bg-white rounded-lg border border-indigo-100 cursor-pointer hover:border-indigo-300 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={editPermissions.canExportReports}
+                        onChange={(e) =>
+                          setEditPermissions({ ...editPermissions, canExportReports: e.target.checked })
+                        }
+                        className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <div>
+                        <p className="font-bold text-slate-800">部门协同报表导出权</p>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          允许汇总导出本部门的周度、月度待办进度与项目成效
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* canManageDepartmentMembers */}
+                    <label className="flex items-start gap-2.5 p-2 bg-white rounded-lg border border-indigo-100 cursor-pointer hover:border-indigo-300 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={editPermissions.canManageDepartmentMembers}
+                        onChange={(e) =>
+                          setEditPermissions({
+                            ...editPermissions,
+                            canManageDepartmentMembers: e.target.checked,
+                          })
+                        }
+                        className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <div>
+                        <p className="font-bold text-slate-800">部门人员编组维护权</p>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          允许主管维护本部门人员项目组分工与状态
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* canViewAllTenders */}
+                    <label className="flex items-start gap-2.5 p-2 bg-white rounded-lg border border-indigo-100 cursor-pointer hover:border-indigo-300 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={editPermissions.canViewAllTenders}
+                        onChange={(e) =>
+                          setEditPermissions({
+                            ...editPermissions,
+                            canViewAllTenders: e.target.checked,
+                          })
+                        }
+                        className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <div>
+                        <p className="font-bold text-slate-800">全量招采标讯穿透检索</p>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          允许穿透检索政企招采、中标全量库
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* Submit / Cancel buttons */}
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditUserModal(false);
+                    setEditingUser(null);
+                  }}
+                  className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
+                >
+                  保存修改与权限
                 </button>
               </div>
             </form>

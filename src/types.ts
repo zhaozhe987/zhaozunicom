@@ -157,6 +157,22 @@ export type ActiveTab = ModuleTab;
 
 export type UserRole = 'admin' | 'supervisor' | 'member';
 
+export const PRESET_DEPARTMENTS = [
+  '政企要客部',
+  '政企企业部',
+  '政企商企部',
+] as const;
+
+export type PresetDepartment = typeof PRESET_DEPARTMENTS[number];
+
+export interface UserPermissions {
+  canManageGroups?: boolean; // 允许设立与管理群组 (下放至主管)
+  canApproveShare?: boolean; // 允许审批跨部门待办共享
+  canExportReports?: boolean; // 允许导出部门总结与报表
+  canManageDepartmentMembers?: boolean; // 允许维护本部门成员
+  canViewAllTenders?: boolean; // 允许穿透检索全部标讯
+}
+
 export interface UserInfo {
   userId: string;
   username: string;
@@ -169,6 +185,7 @@ export interface UserInfo {
   device: string;
   createdAt: string;
   canManageUsers?: boolean;
+  permissions?: UserPermissions;
 }
 
 export interface UserGroup {
@@ -176,6 +193,7 @@ export interface UserGroup {
   name: string;
   description: string;
   leaderId?: string;
+  leaderName?: string;
   memberIds: string[];
   createdAt: string;
   color?: string;

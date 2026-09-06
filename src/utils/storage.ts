@@ -13,9 +13,12 @@ import {
   GroupShareRequest,
   BrandingConfig,
   ModuleTab,
+  PRESET_DEPARTMENTS,
+  PresetDepartment,
+  UserPermissions,
 } from '../types';
 
-// Default pre-seeded users
+// Default pre-seeded users (Requirement 1 & 2: Preset departments: 政企要客, 政企企业, 政企商企)
 export const defaultUsers: UserInfo[] = [
   {
     userId: 'admin_001',
@@ -24,72 +27,127 @@ export const defaultUsers: UserInfo[] = [
     displayName: '系统管理员',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
     role: 'admin',
-    department: '信息技术与数字化中心',
+    department: '政企总控与数字化中心',
     groupList: ['grp_01', 'grp_02', 'grp_03'],
     device: '办公助手总控台 (管理端)',
     createdAt: '2026-08-01 09:00',
     canManageUsers: true,
+    permissions: {
+      canManageGroups: true,
+      canApproveShare: true,
+      canExportReports: true,
+      canManageDepartmentMembers: true,
+      canViewAllTenders: true,
+    },
   },
   {
     userId: 'user_002',
     username: 'zhang_pm',
     password: 'password123',
-    displayName: '张建国 (项目经理)',
+    displayName: '张建国 (要客部主管)',
     avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80',
     role: 'supervisor',
-    department: '智慧城市事业部',
+    department: '政企要客部',
     groupList: ['grp_01'],
     device: 'ThinkPad X1 Carbon (Windows)',
     createdAt: '2026-08-15 10:30',
     canManageUsers: false,
+    permissions: {
+      canManageGroups: true, // 设置群组的权限下放至部门主管
+      canApproveShare: true,
+      canExportReports: true,
+      canManageDepartmentMembers: true,
+      canViewAllTenders: true,
+    },
   },
   {
     userId: 'user_003',
     username: 'li_dev',
     password: 'password123',
-    displayName: '李明 (算法架构师)',
+    displayName: '李明 (要客项目技术架构师)',
     avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&auto=format&fit=crop&q=80',
     role: 'member',
-    department: '智慧城市事业部',
+    department: '政企要客部',
     groupList: ['grp_01'],
     device: 'MacBook Pro M3 Max',
     createdAt: '2026-08-18 14:00',
     canManageUsers: false,
+    permissions: {
+      canManageGroups: false,
+      canApproveShare: false,
+      canExportReports: false,
+      canManageDepartmentMembers: false,
+      canViewAllTenders: true,
+    },
   },
   {
     userId: 'user_004',
     username: 'wang_bid',
     password: 'password123',
-    displayName: '王璐 (招采主管)',
+    displayName: '王璐 (企业部主管)',
     avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=100&auto=format&fit=crop&q=80',
     role: 'supervisor',
-    department: '政企招采部',
+    department: '政企企业部',
     groupList: ['grp_02'],
     device: '办公助手 Web端',
     createdAt: '2026-08-20 11:20',
     canManageUsers: false,
+    permissions: {
+      canManageGroups: true, // 设置群组的权限下放至部门主管
+      canApproveShare: true,
+      canExportReports: true,
+      canManageDepartmentMembers: true,
+      canViewAllTenders: true,
+    },
   },
   {
     userId: 'user_005',
     username: 'chen_oa',
     password: 'password123',
-    displayName: '陈晨 (行政专员)',
+    displayName: '陈晨 (商企部主管)',
     avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=100&auto=format&fit=crop&q=80',
-    role: 'member',
-    department: '综合管理部',
+    role: 'supervisor',
+    department: '政企商企部',
     groupList: ['grp_03'],
     device: 'iPad Pro & 移动终端',
     createdAt: '2026-08-22 09:10',
     canManageUsers: false,
+    permissions: {
+      canManageGroups: true, // 设置群组的权限下放至部门主管
+      canApproveShare: true,
+      canExportReports: true,
+      canManageDepartmentMembers: true,
+      canViewAllTenders: true,
+    },
+  },
+  {
+    userId: 'user_006',
+    username: 'zhao_biz',
+    password: 'password123',
+    displayName: '赵雷 (商企解决方案专员)',
+    avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=100&auto=format&fit=crop&q=80',
+    role: 'member',
+    department: '政企商企部',
+    groupList: ['grp_03'],
+    device: 'ThinkPad T14 (Windows)',
+    createdAt: '2026-08-25 14:30',
+    canManageUsers: false,
+    permissions: {
+      canManageGroups: false,
+      canApproveShare: false,
+      canExportReports: false,
+      canManageDepartmentMembers: false,
+      canViewAllTenders: true,
+    },
   },
 ];
 
-// Default pre-seeded groups
+// Default pre-seeded groups (Requirement 2: Align with 政企要客、政企企业、政企商企)
 export const defaultGroups: UserGroup[] = [
   {
     id: 'grp_01',
-    name: '智慧城市项目组',
-    description: '负责天府新区智慧交通信控与城市大脑二期落地，协同共享核心项目待办',
+    name: '政企要客重大项目专班',
+    description: '聚焦天府新区重大政务云信创工程与智慧交通枢纽专项，由要客部主管张建国统筹协同',
     leaderId: 'user_002',
     memberIds: ['admin_001', 'user_002', 'user_003'],
     createdAt: '2026-08-15 09:00',
@@ -97,8 +155,8 @@ export const defaultGroups: UserGroup[] = [
   },
   {
     id: 'grp_02',
-    name: '政企招采工作群',
-    description: '聚焦四川省及重点省市标讯监控、采购意向研判与历史标讯数据比对',
+    name: '政企企业数字化转型工作群',
+    description: '聚焦规模型国企与重点民营工业互联网升级，由企业部主管王璐负责标讯跟进与方案交付',
     leaderId: 'user_004',
     memberIds: ['admin_001', 'user_004'],
     createdAt: '2026-08-20 10:00',
@@ -106,10 +164,10 @@ export const defaultGroups: UserGroup[] = [
   },
   {
     id: 'grp_03',
-    name: '综合行政管理部',
-    description: '公文转换、账目报销、员工健康关怀与办公物资统筹',
-    leaderId: 'admin_001',
-    memberIds: ['admin_001', 'user_005'],
+    name: '政企商企招商协同推进组',
+    description: '围绕产业园区与商企招商引资公文协同、商机触达与合同归档，由商企部主管陈晨组织推进',
+    leaderId: 'user_005',
+    memberIds: ['admin_001', 'user_005', 'user_006'],
     createdAt: '2026-08-22 08:30',
     color: 'emerald',
   },
@@ -1186,12 +1244,27 @@ export const getStoredUsers = (): UserInfo[] => {
   }
   try {
     const parsed: UserInfo[] = JSON.parse(saved);
-    // Ensure all users have a fallback password if migrated
+    // Ensure all users have fallback password, preset department and permissions if migrated
     const ensured = parsed.map((u) => {
       const match = defaultUsers.find((du) => du.userId === u.userId || du.username === u.username);
+      let dep = u.department || match?.department || '政企要客部';
+      if (dep === '智慧城市事业部') dep = '政企要客部';
+      if (dep === '政企招采部') dep = '政企企业部';
+      if (dep === '综合管理部') dep = '政企商企部';
+
+      const defaultPerm: UserPermissions = {
+        canManageGroups: u.role === 'admin' || u.role === 'supervisor',
+        canApproveShare: u.role === 'admin' || u.role === 'supervisor',
+        canExportReports: u.role === 'admin' || u.role === 'supervisor',
+        canManageDepartmentMembers: u.role === 'admin',
+        canViewAllTenders: true,
+      };
+
       return {
         ...u,
+        department: dep,
         password: u.password || match?.password || 'password123',
+        permissions: u.permissions || match?.permissions || defaultPerm,
       };
     });
     return ensured;

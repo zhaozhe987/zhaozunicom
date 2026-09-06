@@ -319,7 +319,9 @@ export default function App() {
                 setTasks={setTasks}
                 currentUser={currentUser}
                 users={users}
+                setUsers={setUsers}
                 groups={groups}
+                setGroups={setGroups}
                 shareRequests={shareRequests}
                 setShareRequests={setShareRequests}
               />
