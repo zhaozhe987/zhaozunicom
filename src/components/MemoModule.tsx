@@ -162,7 +162,7 @@ export const MemoModule: React.FC<MemoModuleProps> = ({ memos, setMemos }) => {
           <div>
             <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
               <StickyNote className="w-5 h-5 text-amber-500" />
-              <span>生活备忘录</span>
+              <span>生活备忘录111</span>
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
               记录工作之外的体检、旅行、购物等生活琐事，支持图文附件与分类检索

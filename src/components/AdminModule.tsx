@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Shield,
   Users,
@@ -23,6 +23,11 @@ import {
   CheckCircle2,
   ShieldCheck,
   Sliders,
+  Save,
+  CheckSquare,
+  Square,
+  ChevronRight,
+  UserCog,
 } from 'lucide-react';
 import {
   UserInfo,
@@ -33,7 +38,9 @@ import {
   PRESET_DEPARTMENTS,
   PresetDepartment,
   UserPermissions,
+  RoleDefinition,
 } from '../types';
+import { api } from '../utils/api';
 
 interface AdminModuleProps {
   currentUser: UserInfo;
@@ -100,6 +107,144 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
     setTimeout(() => setActionSuccessMsg(''), 3000);
   };
 
+  // Roles state loaded from server /api/roles
+  const [roleDefs, setRoleDefs] = useState<Record<UserRole, RoleDefinition>>({
+    admin: {
+      roleKey: 'admin',
+      name: '超级管理员',
+      description: '系统最高控制与权限配置权',
+      permissions: {
+        canManageUsers: true,
+        canEditRolePermissions: true,
+        canManageGroups: true,
+        canApproveShare: true,
+        canExportReports: true,
+        canManageDepartmentMembers: true,
+        canViewAllTenders: true,
+        canManageBranding: true,
+        canAccessAdminTab: true,
+      },
+    },
+    supervisor: {
+      roleKey: 'supervisor',
+      name: '部门主管',
+      description: '负责部门内部业务统筹、初审与协同下放',
+      permissions: {
+        canManageUsers: false,
+        canEditRolePermissions: false,
+        canManageGroups: true,
+        canApproveShare: true,
+        canExportReports: true,
+        canManageDepartmentMembers: true,
+        canViewAllTenders: true,
+        canManageBranding: false,
+        canAccessAdminTab: false,
+      },
+    },
+    member: {
+      roleKey: 'member',
+      name: '普通员工',
+      description: '日常个人与组内协作执行，拥有个人办公完整权限',
+      permissions: {
+        canManageUsers: false,
+        canEditRolePermissions: false,
+        canManageGroups: false,
+        canApproveShare: false,
+        canExportReports: false,
+        canManageDepartmentMembers: false,
+        canViewAllTenders: true,
+        canManageBranding: false,
+        canAccessAdminTab: false,
+      },
+    },
+  });
+
+  // Load server roles
+  useEffect(() => {
+    api.getRoles().then((res) => {
+      const rolesList = Array.isArray(res) ? res : (res as any)?.roles || (res as any)?.data || [];
+      if (rolesList.length > 0) {
+        const map: Record<string, RoleDefinition> = {};
+        rolesList.forEach((r: RoleDefinition) => {
+          map[r.roleKey] = r;
+        });
+        setRoleDefs((prev) => ({ ...prev, ...map }));
+      }
+    });
+  }, []);
+
+  const [roleSaving, setRoleSaving] = useState(false);
+  const handleSaveRolePermissions = async (roleKey: UserRole) => {
+    setRoleSaving(true);
+    try {
+      const targetRole = roleDefs[roleKey];
+      if (targetRole) {
+        await api.updateRolePermissions(roleKey, targetRole.permissions);
+        showToast(`【${targetRole.name}】基准权限策略已成功保存至持久数据库并全员同步`);
+      }
+    } catch (e) {
+      alert('保存角色权限失败，请重试');
+    } finally {
+      setRoleSaving(false);
+    }
+  };
+
+  const handleToggleRolePermission = (roleKey: UserRole, permKey: keyof UserPermissions) => {
+    setRoleDefs((prev) => ({
+      ...prev,
+      [roleKey]: {
+        ...prev[roleKey],
+        permissions: {
+          ...prev[roleKey].permissions,
+          [permKey]: !prev[roleKey].permissions[permKey],
+        },
+      },
+    }));
+  };
+
+  // User-specific override state
+  const [selectedOverrideUserId, setSelectedOverrideUserId] = useState<string>(users[1]?.userId || users[0]?.userId || '');
+  const selectedUserForOverride = users.find((u) => u.userId === selectedOverrideUserId) || users[0];
+
+  const handleToggleUserOverride = async (userId: string, permKey: keyof UserPermissions) => {
+    const targetUser = users.find((u) => u.userId === userId);
+    if (!targetUser) return;
+
+    const baseRolePerm = roleDefs[targetUser.role]?.permissions[permKey] ?? false;
+    const currentEffective = targetUser.permissions?.[permKey] ?? baseRolePerm;
+    const nextVal = !currentEffective;
+
+    const updatedPermissions: UserPermissions = {
+      ...(targetUser.permissions || roleDefs[targetUser.role]?.permissions || {}),
+      [permKey]: nextVal,
+    };
+
+    const updatedOverrides: Partial<UserPermissions> = {
+      ...(targetUser.permissionOverrides || {}),
+      [permKey]: nextVal,
+    };
+
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.userId === userId
+          ? {
+              ...u,
+              permissions: updatedPermissions,
+              permissionOverrides: updatedOverrides,
+            }
+          : u
+      )
+    );
+
+    // Save to server database
+    await api.updateUser(userId, {
+      permissions: updatedPermissions,
+      permissionOverrides: updatedOverrides,
+    });
+
+    showToast(`成员【${targetUser.displayName}】的特权已更新：${nextVal ? '已授予' : '已收回'}`);
+  };
+
   // Open Edit User Modal
   const handleOpenEditUser = (user: UserInfo) => {
     setEditingUser(user);
@@ -118,7 +263,7 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
   };
 
   // Save Edit User
-  const handleSaveEditUser = (e: React.FormEvent) => {
+  const handleSaveEditUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
     if (editingUser.userId === currentUser.userId && editRole !== 'admin') {
@@ -126,16 +271,20 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
       return;
     }
 
+    const updatedUserPayload = {
+      displayName: editDisplayName.trim() || editingUser.displayName,
+      department: editDepartment.trim() || editingUser.department,
+      role: editRole,
+      groupList: editSelectedGroups,
+      canManageUsers: editRole === 'admin',
+      permissions: editPermissions,
+    };
+
     const updatedUsers = users.map((u) => {
       if (u.userId !== editingUser.userId) return u;
       return {
         ...u,
-        displayName: editDisplayName.trim() || u.displayName,
-        department: editDepartment.trim() || u.department,
-        role: editRole,
-        groupList: editSelectedGroups,
-        canManageUsers: editRole === 'admin',
-        permissions: editPermissions,
+        ...updatedUserPayload,
       };
     });
 
@@ -156,28 +305,30 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
       })
     );
 
+    // Persist to server API
+    await api.updateUser(editingUser.userId, updatedUserPayload);
+
     setShowEditUserModal(false);
     setEditingUser(null);
-    showToast(`成员【${editDisplayName}】所属部门、项目组及权限已成功更新`);
+    showToast(`成员【${editDisplayName}】所属部门、项目组及权限已成功保存到数据库`);
   };
 
   // Toggle specific supervisor permission directly
-  const handleToggleSupervisorPermission = (userId: string, permKey: keyof UserPermissions) => {
+  const handleToggleSupervisorPermission = async (userId: string, permKey: keyof UserPermissions) => {
+    const target = users.find((u) => u.userId === userId);
+    if (!target) return;
+    const currentVal = target.permissions?.[permKey] ?? (target.role === 'admin' || target.role === 'supervisor');
+    const updatedPerms: UserPermissions = {
+      ...(target.permissions || {}),
+      [permKey]: !currentVal,
+    };
+
     setUsers((prev) =>
-      prev.map((u) => {
-        if (u.userId !== userId) return u;
-        const currentVal = u.permissions?.[permKey] ?? (u.role === 'admin' || u.role === 'supervisor');
-        const updatedPerms: UserPermissions = {
-          ...(u.permissions || {}),
-          [permKey]: !currentVal,
-        };
-        return {
-          ...u,
-          permissions: updatedPerms,
-        };
-      })
+      prev.map((u) => (u.userId === userId ? { ...u, permissions: updatedPerms } : u))
     );
-    showToast('主管特权与下放权限配置已实时生效');
+
+    await api.updateUser(userId, { permissions: updatedPerms });
+    showToast('主管特权与下放权限配置已实时生效并存盘');
   };
 
   // New group form state
@@ -195,7 +346,7 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
   const [logoSaveSuccess, setLogoSaveSuccess] = useState(false);
 
   // Handle Create User
-  const handleCreateUser = (e: React.FormEvent) => {
+  const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUsername.trim() || !newDisplayName.trim()) return;
 
@@ -210,6 +361,7 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
       device: `${branding.appName || '办公助手'} 客户端`,
       createdAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
       canManageUsers: newRole === 'admin',
+      permissions: newRole === 'supervisor' ? newSupervisorPermissions : undefined,
     };
 
     setUsers((prev) => [...prev, newUser]);
@@ -225,6 +377,9 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
       );
     }
 
+    // Persist to server API
+    await api.createUser(newUser);
+
     // Reset form
     setNewUsername('');
     setNewPassword('password123');
@@ -233,10 +388,11 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
     setNewDepartment('');
     setNewSelectedGroups([]);
     setShowAddUserModal(false);
+    showToast(`新成员【${newUser.displayName}】账号已成功创建并存入云端数据库`);
   };
 
   // Handle Update User Role
-  const handleUpdateUserRole = (userId: string, updatedRole: UserRole) => {
+  const handleUpdateUserRole = async (userId: string, updatedRole: UserRole) => {
     if (userId === currentUser.userId && updatedRole !== 'admin') {
       alert('操作拦截：不能撤销当前管理员自己的超级管理员权限！');
       return;
@@ -248,10 +404,12 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
           : u
       )
     );
+    await api.updateUser(userId, { role: updatedRole, canManageUsers: updatedRole === 'admin' });
+    showToast('用户系统角色已变更并存盘');
   };
 
   // Handle Reset User Password
-  const handleResetPassword = (userId: string, username: string) => {
+  const handleResetPassword = async (userId: string, username: string) => {
     const newPass = window.prompt(`正在为账号【@${username}】重置密码，请输入新密码:`, 'password123');
     if (newPass === null) return;
     if (!newPass.trim()) {
@@ -263,11 +421,12 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
         u.userId === userId ? { ...u, password: newPass.trim() } : u
       )
     );
+    await api.updateUser(userId, { password: newPass.trim() });
     alert(`账号【@${username}】密码已成功重置为: ${newPass.trim()}`);
   };
 
   // Handle Delete User
-  const handleDeleteUser = (userId: string) => {
+  const handleDeleteUser = async (userId: string) => {
     if (userId === currentUser.userId) {
       alert('不能删除当前正在登录的账号！');
       return;
@@ -280,11 +439,13 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
           memberIds: g.memberIds.filter((m) => m !== userId),
         }))
       );
+      await api.deleteUser(userId);
+      showToast('账号已从系统中删除');
     }
   };
 
   // Handle Create Group
-  const handleCreateGroup = (e: React.FormEvent) => {
+  const handleCreateGroup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newGroupName.trim()) return;
 
@@ -309,14 +470,17 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
       )
     );
 
+    await api.saveGroup(newGroup);
+
     setNewGroupName('');
     setNewGroupDesc('');
     setNewGroupMemberIds([]);
     setShowAddGroupModal(false);
+    showToast(`协同群组【${newGroup.name}】已成功设立并持久保存`);
   };
 
   // Handle Delete Group
-  const handleDeleteGroup = (groupId: string) => {
+  const handleDeleteGroup = async (groupId: string) => {
     if (window.confirm('确认解散该群组？该操作不影响成员已有个人待办。')) {
       setGroups((prev) => prev.filter((g) => g.id !== groupId));
       setUsers((prev) =>
@@ -325,6 +489,8 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
           groupList: u.groupList.filter((gid) => gid !== groupId),
         }))
       );
+      await api.deleteGroup(groupId);
+      showToast('群组已成功解散');
     }
   };
 
@@ -358,7 +524,7 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
   };
 
   // Save Branding Settings
-  const handleSaveBranding = (e: React.FormEvent) => {
+  const handleSaveBranding = async (e: React.FormEvent) => {
     e.preventDefault();
     const updated: BrandingConfig = {
       appName: brandAppName.trim() || '吉吉办公',
@@ -367,6 +533,7 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
       updatedAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
     };
     setBranding(updated);
+    await api.updateBranding(updated);
     setLogoSaveSuccess(true);
     setTimeout(() => setLogoSaveSuccess(false), 3000);
   };
@@ -673,500 +840,514 @@ export const AdminModule: React.FC<AdminModuleProps> = ({
         </div>
       )}
 
-      {/* Tab: System Permissions & RBAC Matrix */}
+      {/* Tab: System Permissions & Dynamic RBAC Matrix */}
       {activeTab === 'permissions' && (
         <div className="space-y-6">
           {/* Top Banner */}
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
-            <div className="flex items-center gap-2 mb-2">
-              <ShieldCheck className="w-5 h-5 text-blue-600" />
-              <h3 className="text-sm font-bold text-slate-900">系统权限管理与角色控制策略 (RBAC)</h3>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                策略生效中
-              </span>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    系统权限分级与动态角色控制矩阵 (RBAC)
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      实时持久生效
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    作为超级管理员，您可在线调整各角色（主管、普通员工）的基准默认权限，并支持针对具体人员进行独立特权授权或收回。
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={roleSaving}
+                  onClick={async () => {
+                    setRoleSaving(true);
+                    try {
+                      await Promise.all([
+                        api.updateRolePermissions('admin', roleDefs.admin.permissions),
+                        api.updateRolePermissions('supervisor', roleDefs.supervisor.permissions),
+                        api.updateRolePermissions('member', roleDefs.member.permissions),
+                      ]);
+                      showToast('全部角色基准权限已持久化保存至数据库');
+                    } catch (e) {
+                      alert('保存失败，请稍后重试');
+                    } finally {
+                      setRoleSaving(false);
+                    }
+                  }}
+                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-lg shadow-xs flex items-center gap-1.5 transition-all"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{roleSaving ? '同步中...' : '保存角色基准策略'}</span>
+                </button>
+              </div>
             </div>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              平台实行严格的角色访问控制（Role-Based Access Control）。除系统管理员外，所有普通成员及部门主管一律禁止查看管理控制平台，同时禁止普通用户在系统内任意切换账号。
-            </p>
           </div>
 
-          {/* Three Role Cards */}
+          {/* Role Overview Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Admin Role Card */}
-            <div className="bg-white rounded-xl border-2 border-red-200 p-4 shadow-xs relative">
-              <div className="flex items-center justify-between mb-3">
-                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-red-100 text-red-800">
-                  超级管理员 (admin)
-                </span>
-                <span className="text-[11px] text-slate-400 font-mono">最高权限</span>
-              </div>
-              <h4 className="text-xs font-bold text-slate-900 mb-2">系统最高控制与权限配置权</h4>
-              <ul className="space-y-1.5 text-xs text-slate-600">
-                <li className="flex items-start gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                  <span><strong>管理控制台</strong>：独占完全查看与操作权限</span>
-                </li>
-                <li className="flex items-start gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                  <span><strong>账号切换</strong>：允许在全局账号之间切换调试</span>
-                </li>
-                <li className="flex items-start gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                  <span><strong>权限管理</strong>：分配与调整任何用户的系统角色</span>
-                </li>
-                <li className="flex items-start gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                  <span><strong>密码管控</strong>：支持强制重置任意成员账号密码</span>
-                </li>
-                <li className="flex items-start gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                  <span><strong>协同治理</strong>：群组架构设立与待办跨端共享终审</span>
-                </li>
-                <li className="flex items-start gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                  <span><strong>品牌自定义</strong>：自定义企业Logo图片与系统名称</span>
-                </li>
-              </ul>
-            </div>
+            {(['admin', 'supervisor', 'member'] as UserRole[]).map((rKey) => {
+              const rDef = roleDefs[rKey];
+              const userCount = users.filter((u) => u.role === rKey).length;
+              const isSuper = rKey === 'admin';
+              const isSp = rKey === 'supervisor';
 
-            {/* Supervisor Role Card */}
-            <div className="bg-white rounded-xl border border-blue-200 p-4 shadow-xs">
-              <div className="flex items-center justify-between mb-3">
-                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800">
-                  部门主管 (supervisor)
-                </span>
-                <span className="text-[11px] text-slate-400 font-mono">业务统筹</span>
-              </div>
-              <h4 className="text-xs font-bold text-slate-900 mb-2">群组业务统筹与待办审批权</h4>
-              <ul className="space-y-1.5 text-xs text-slate-600">
-                <li className="flex items-start gap-1.5 text-red-600 font-medium">
-                  <X className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
-                  <span><strong>管理控制台：严禁访问（菜单隐藏）</strong></span>
-                </li>
-                <li className="flex items-start gap-1.5 text-red-600 font-medium">
-                  <X className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
-                  <span><strong>账号切换：严禁切换其他用户账号</strong></span>
-                </li>
-                <li className="flex items-start gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                  <span><strong>每日工作</strong>：查看本部门成员共享的任务进展</span>
-                </li>
-                <li className="flex items-start gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                  <span><strong>协同申请</strong>：审批组内普通成员的待办穿透申请</span>
-                </li>
-                <li className="flex items-start gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                  <span><strong>数据透视</strong>：标讯穿透分析与8点新闻转发讨论</span>
-                </li>
-              </ul>
-            </div>
+              return (
+                <div
+                  key={rKey}
+                  className={`bg-white rounded-xl border p-4 shadow-xs relative transition-all ${
+                    isSuper
+                      ? 'border-red-200'
+                      : isSp
+                      ? 'border-blue-200'
+                      : 'border-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span
+                      className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                        isSuper
+                          ? 'bg-red-100 text-red-800'
+                          : isSp
+                          ? 'bg-blue-100 text-blue-800'
+                          : 'bg-slate-100 text-slate-800'
+                      }`}
+                    >
+                      {rDef.name} ({rKey})
+                    </span>
+                    <span className="text-[11px] text-slate-400 font-mono">
+                      当前共 {userCount} 人
+                    </span>
+                  </div>
 
-            {/* Member Role Card */}
-            <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
-              <div className="flex items-center justify-between mb-3">
-                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 text-slate-800">
-                  普通成员 (member)
-                </span>
-                <span className="text-[11px] text-slate-400 font-mono">基层办公</span>
-              </div>
-              <h4 className="text-xs font-bold text-slate-900 mb-2">个人日常业务与组内协作</h4>
-              <ul className="space-y-1.5 text-xs text-slate-600">
-                <li className="flex items-start gap-1.5 text-red-600 font-medium">
-                  <X className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
-                  <span><strong>管理控制台：严禁访问（菜单隐藏）</strong></span>
-                </li>
-                <li className="flex items-start gap-1.5 text-red-600 font-medium">
-                  <X className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
-                  <span><strong>账号切换：严禁切换其他用户账号</strong></span>
-                </li>
-                <li className="flex items-start gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                  <span><strong>日常办公</strong>：个人待办、备忘录、记账本</span>
-                </li>
-                <li className="flex items-start gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                  <span><strong>团队共享</strong>：自主将待办共享至指定所属群组</span>
-                </li>
-                <li className="flex items-start gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                  <span><strong>标讯新闻</strong>：历史招投标查询与8点早报浏览</span>
-                </li>
-              </ul>
-            </div>
+                  <p className="text-xs text-slate-600 mb-3 leading-relaxed">
+                    {rDef.description}
+                  </p>
+
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                    <span className="text-[11px] text-slate-500">
+                      默认开通权限数:
+                    </span>
+                    <span className="text-xs font-bold text-slate-800">
+                      {Object.values(rDef.permissions).filter(Boolean).length} 项
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
-          {/* Full RBAC Matrix Table */}
+          {/* Interactive Role Permissions Matrix */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
-            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-              <h4 className="text-xs font-bold text-slate-800">系统权限详细对比矩阵表</h4>
-              <span className="text-[11px] text-slate-400">实时受控生效</span>
+            <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                  <Sliders className="w-4 h-4 text-blue-600" />
+                  角色默认权限矩阵（点击直接切换勾选，点击上方保存即可持久存盘）
+                </h4>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  作为超级管理员，您可以自由调整主管与普通员工的默认权限项。
+                </p>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 font-bold">
                   <tr>
-                    <th className="py-3 px-4">系统功能 / 操作控制点</th>
-                    <th className="py-3 px-4 text-center">超级管理员 (admin)</th>
-                    <th className="py-3 px-4 text-center">部门主管 (supervisor)</th>
-                    <th className="py-3 px-4 text-center">普通成员 (member)</th>
+                    <th className="py-3 px-4 w-2/5">系统权限控制点与业务说明</th>
+                    <th className="py-3 px-4 text-center w-1/5">
+                      <div className="flex flex-col items-center">
+                        <span className="text-red-700">超级管理员 (admin)</span>
+                        <span className="text-[10px] text-slate-400 font-normal">最高控制</span>
+                      </div>
+                    </th>
+                    <th className="py-3 px-4 text-center w-1/5">
+                      <div className="flex flex-col items-center">
+                        <span className="text-blue-700">部门主管 (supervisor)</span>
+                        <span className="text-[10px] text-slate-400 font-normal">业务初审与统筹</span>
+                      </div>
+                    </th>
+                    <th className="py-3 px-4 text-center w-1/5">
+                      <div className="flex flex-col items-center">
+                        <span className="text-slate-700">普通员工 (member)</span>
+                        <span className="text-[10px] text-slate-400 font-normal">执行基准</span>
+                      </div>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
-                  <tr className="hover:bg-slate-50/60">
-                    <td className="py-3 px-4 font-semibold text-slate-900">
-                      查看与操作管理控制台
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                        允许访问
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-bold text-[10px]">
-                        禁止访问 (拦截)
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-bold text-[10px]">
-                        禁止访问 (拦截)
-                      </span>
-                    </td>
-                  </tr>
+                  {[
+                    {
+                      key: 'canAccessAdminTab' as keyof UserPermissions,
+                      title: '访问与操作管理控制台',
+                      desc: '查看企业组织架构、用户列表及安全设置',
+                      category: '系统权限',
+                    },
+                    {
+                      key: 'canEditRolePermissions' as keyof UserPermissions,
+                      title: '调整系统角色权限矩阵',
+                      desc: '更改各角色的基准权限与分权策略',
+                      category: '系统权限',
+                    },
+                    {
+                      key: 'canManageUsers' as keyof UserPermissions,
+                      title: '人员与账号生命周期管理',
+                      desc: '新增账号、调整部门及重置账号密码',
+                      category: '组织管理',
+                    },
+                    {
+                      key: 'canManageGroups' as keyof UserPermissions,
+                      title: '设立与解散协作业务群组',
+                      desc: '建立项目组并指派组长与跨部门成员',
+                      category: '协作管理',
+                    },
+                    {
+                      key: 'canApproveShare' as keyof UserPermissions,
+                      title: '审批待办跨人员/跨组穿透共享',
+                      desc: '对普通员工申请的待办共享进行审批',
+                      category: '协作管理',
+                    },
+                    {
+                      key: 'canManageDepartmentMembers' as keyof UserPermissions,
+                      title: '调配部门内部员工与分工编组',
+                      desc: '调整部门内人员的工作职责分配',
+                      category: '部门治理',
+                    },
+                    {
+                      key: 'canExportReports' as keyof UserPermissions,
+                      title: '导出协同汇总报表与统计数据',
+                      desc: '下载每日任务进展及团队协同Excel报表',
+                      category: '数据管理',
+                    },
+                    {
+                      key: 'canViewAllTenders' as keyof UserPermissions,
+                      title: '穿透检索全量招采标讯信息',
+                      desc: '无部门与群组隔离，查看全平台标讯',
+                      category: '数据管理',
+                    },
+                    {
+                      key: 'canManageBranding' as keyof UserPermissions,
+                      title: '企业Logo与系统名称定制',
+                      desc: '自定义系统名称、宣传语与企业标识',
+                      category: '品牌定制',
+                    },
+                  ].map((perm) => {
+                    return (
+                      <tr key={perm.key} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="py-3 px-4">
+                          <div className="flex items-start gap-2">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-500 font-mono shrink-0 mt-0.5">
+                              {perm.category}
+                            </span>
+                            <div>
+                              <p className="font-semibold text-slate-900">{perm.title}</p>
+                              <p className="text-[11px] text-slate-400">{perm.desc}</p>
+                            </div>
+                          </div>
+                        </td>
 
-                  <tr className="hover:bg-slate-50/60">
-                    <td className="py-3 px-4 font-semibold text-slate-900">
-                      快速切换其他人员账号
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                        允许调试切换
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-bold text-[10px]">
-                        严格禁止
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-bold text-[10px]">
-                        严格禁止
-                      </span>
-                    </td>
-                  </tr>
+                        {/* Admin cell */}
+                        <td className="py-3 px-4 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleRolePermission('admin', perm.key)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold transition-all ${
+                              roleDefs.admin.permissions[perm.key]
+                                ? 'bg-red-50 text-red-700 border border-red-200 hover:bg-red-100'
+                                : 'bg-slate-100 text-slate-400 border border-slate-200 hover:bg-slate-200'
+                            }`}
+                          >
+                            {roleDefs.admin.permissions[perm.key] ? (
+                              <>
+                                <CheckCircle2 className="w-3.5 h-3.5 text-red-600" />
+                                <span>开通</span>
+                              </>
+                            ) : (
+                              <>
+                                <X className="w-3.5 h-3.5 text-slate-400" />
+                                <span>关闭</span>
+                              </>
+                            )}
+                          </button>
+                        </td>
 
-                  <tr className="hover:bg-slate-50/60">
-                    <td className="py-3 px-4 font-semibold text-slate-900">
-                      修改用户角色与系统权限
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                        允许配置
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-bold text-[10px]">
-                        禁止
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-bold text-[10px]">
-                        禁止
-                      </span>
-                    </td>
-                  </tr>
+                        {/* Supervisor cell */}
+                        <td className="py-3 px-4 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleRolePermission('supervisor', perm.key)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold transition-all ${
+                              roleDefs.supervisor.permissions[perm.key]
+                                ? 'bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100'
+                                : 'bg-slate-100 text-slate-400 border border-slate-200 hover:bg-slate-200'
+                            }`}
+                          >
+                            {roleDefs.supervisor.permissions[perm.key] ? (
+                              <>
+                                <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                                <span>开通</span>
+                              </>
+                            ) : (
+                              <>
+                                <X className="w-3.5 h-3.5 text-slate-400" />
+                                <span>关闭</span>
+                              </>
+                            )}
+                          </button>
+                        </td>
 
-                  <tr className="hover:bg-slate-50/60">
-                    <td className="py-3 px-4 font-semibold text-slate-900">
-                      强制重置账号登录密码
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                        允许重设
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-bold text-[10px]">
-                        禁止
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-bold text-[10px]">
-                        禁止
-                      </span>
-                    </td>
-                  </tr>
-
-                  <tr className="hover:bg-slate-50/60">
-                    <td className="py-3 px-4 font-semibold text-slate-900">
-                      设立群组架构与群成员编组
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                        允许设立与解散
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold text-[10px]">
-                        可下放至部门主管 (受控开关)
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-bold text-[10px]">
-                        仅作为成员加入
-                      </span>
-                    </td>
-                  </tr>
-
-                  <tr className="hover:bg-slate-50/60">
-                    <td className="py-3 px-4 font-semibold text-slate-900">
-                      待办共享申请审批 (协同授权)
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                        最高终审权
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold text-[10px]">
-                        本部门初审
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-bold text-[10px]">
-                        发起申请
-                      </span>
-                    </td>
-                  </tr>
-
-                  <tr className="hover:bg-slate-50/60">
-                    <td className="py-3 px-4 font-semibold text-slate-900">
-                      系统名称与企业Logo图片定制
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                        独家全权定制
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-bold text-[10px]">
-                        禁止
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-bold text-[10px]">
-                        禁止
-                      </span>
-                    </td>
-                  </tr>
-
-                  <tr className="hover:bg-slate-50/60">
-                    <td className="py-3 px-4 font-semibold text-slate-900">
-                      日常办公 (待办/备忘/记账/标讯/早报)
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                        完全支持
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                        完全支持
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                        完全支持
-                      </span>
-                    </td>
-                  </tr>
+                        {/* Member cell */}
+                        <td className="py-3 px-4 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleRolePermission('member', perm.key)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold transition-all ${
+                              roleDefs.member.permissions[perm.key]
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                                : 'bg-slate-100 text-slate-400 border border-slate-200 hover:bg-slate-200'
+                            }`}
+                          >
+                            {roleDefs.member.permissions[perm.key] ? (
+                              <>
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>开通</span>
+                              </>
+                            ) : (
+                              <>
+                                <X className="w-3.5 h-3.5 text-slate-400" />
+                                <span>关闭</span>
+                              </>
+                            )}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </div>
 
-          {/* Supervisor Specific Permissions & Delegation Management Section */}
+          {/* Section 2: User-Specific Permission Overrides */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
-            <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
-                <div className="flex items-center gap-2">
-                  <Sliders className="w-4 h-4 text-blue-600" />
-                  <h4 className="text-xs font-bold text-slate-800">各部门主管特权动态增减与群组管理权下放管控区</h4>
-                </div>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  支持在线对政企要客、政企企业、政企商企等各部门主管权限进行精细化增减，包括设立群组权限下放
+                <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                  <UserCog className="w-4 h-4 text-indigo-600" />
+                  个别员工与主管独立特权覆盖微调（User-Specific Overrides）
+                </h4>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  选择具体成员，超管可单独为其授予特权或单独收回某项权限，不影响同角色的其他人员。
                 </p>
               </div>
-              <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-semibold border border-blue-200">
-                实时控制 · 即时生效
-              </span>
+
+              {/* User Selector Dropdown */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500 font-medium">选择目标成员:</span>
+                <select
+                  value={selectedOverrideUserId}
+                  onChange={(e) => setSelectedOverrideUserId(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 text-slate-800 text-xs rounded-lg px-3 py-1.5 font-bold focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  {users.map((u) => (
+                    <option key={u.userId} value={u.userId}>
+                      {u.displayName} ({u.role === 'admin' ? '超管' : u.role === 'supervisor' ? '主管' : '员工'} - {u.department})
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
-            <div className="p-4 divide-y divide-slate-100 space-y-4">
-              {users
-                .filter((u) => u.role === 'supervisor')
-                .map((sp) => {
-                  const perms = sp.permissions || {
-                    canManageGroups: true,
-                    canApproveShare: true,
-                    canExportReports: true,
-                    canManageDepartmentMembers: true,
-                    canViewAllTenders: true,
-                  };
-                  const spGroups = groups.filter((g) => sp.groupList.includes(g.id));
-
-                  return (
-                    <div key={sp.userId} className="pt-4 first:pt-0 space-y-3">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-800 font-bold flex items-center justify-center text-sm border border-blue-200 overflow-hidden">
-                            {sp.avatar ? (
-                              <img src={sp.avatar} alt={sp.displayName} className="w-full h-full object-cover" />
-                            ) : (
-                              sp.displayName.slice(0, 1)
-                            )}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-slate-800 text-xs">{sp.displayName}</span>
-                              <span className="text-[10px] font-mono text-slate-400">@{sp.username}</span>
-                              {sp.department === '政企要客部' ? (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                                  政企要客部
-                                </span>
-                              ) : sp.department === '政企企业部' ? (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                                  政企企业部
-                                </span>
-                              ) : sp.department === '政企商企部' ? (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                  政企商企部
-                                </span>
-                              ) : (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                                  {sp.department || '未分配部门'}
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-[11px] text-slate-500 mt-0.5">
-                              关联项目组: {spGroups.length > 0 ? spGroups.map((g) => g.name).join('、') : '暂未加入项目组'}
-                            </p>
-                          </div>
-                        </div>
-
-                        <button
-                          onClick={() => handleOpenEditUser(sp)}
-                          className="px-2.5 py-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors inline-flex items-center gap-1 self-start sm:self-auto"
-                        >
-                          <Edit className="w-3 h-3" />
-                          <span>修改部门 / 所属项目组</span>
-                        </button>
-                      </div>
-
-                      {/* Permission toggle buttons */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 bg-slate-50 p-3 rounded-lg border border-slate-100">
-                        {/* 1. canManageGroups */}
-                        <div className="bg-white p-2.5 rounded-md border border-slate-200 flex items-center justify-between gap-2">
-                          <div>
-                            <p className="text-xs font-bold text-slate-800 flex items-center gap-1">
-                              群组设立与管理权
-                              <span className="px-1 text-[9px] bg-emerald-100 text-emerald-800 rounded font-semibold">权限下放</span>
-                            </p>
-                            <p className="text-[10px] text-slate-400">允许主管设立项目组与调配组员</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleToggleSupervisorPermission(sp.userId, 'canManageGroups')}
-                            className={`px-2 py-1 rounded text-[11px] font-bold transition-all ${
-                              perms.canManageGroups
-                                ? 'bg-emerald-600 text-white shadow-xs hover:bg-emerald-700'
-                                : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
-                            }`}
-                          >
-                            {perms.canManageGroups ? '已下放' : '已收回'}
-                          </button>
-                        </div>
-
-                        {/* 2. canApproveShare */}
-                        <div className="bg-white p-2.5 rounded-md border border-slate-200 flex items-center justify-between gap-2">
-                          <div>
-                            <p className="text-xs font-bold text-slate-800">跨部门待办共享审批</p>
-                            <p className="text-[10px] text-slate-400">初审本部门与其他部门共享申请</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleToggleSupervisorPermission(sp.userId, 'canApproveShare')}
-                            className={`px-2 py-1 rounded text-[11px] font-bold transition-all ${
-                              perms.canApproveShare
-                                ? 'bg-blue-600 text-white shadow-xs hover:bg-blue-700'
-                                : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
-                            }`}
-                          >
-                            {perms.canApproveShare ? '允许审批' : '关闭权限'}
-                          </button>
-                        </div>
-
-                        {/* 3. canExportReports */}
-                        <div className="bg-white p-2.5 rounded-md border border-slate-200 flex items-center justify-between gap-2">
-                          <div>
-                            <p className="text-xs font-bold text-slate-800">部门业务报表导出</p>
-                            <p className="text-[10px] text-slate-400">导出本部门待办/协同统计数据</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleToggleSupervisorPermission(sp.userId, 'canExportReports')}
-                            className={`px-2 py-1 rounded text-[11px] font-bold transition-all ${
-                              perms.canExportReports
-                                ? 'bg-blue-600 text-white shadow-xs hover:bg-blue-700'
-                                : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
-                            }`}
-                          >
-                            {perms.canExportReports ? '允许导出' : '禁止导出'}
-                          </button>
-                        </div>
-
-                        {/* 4. canManageDepartmentMembers */}
-                        <div className="bg-white p-2.5 rounded-md border border-slate-200 flex items-center justify-between gap-2">
-                          <div>
-                            <p className="text-xs font-bold text-slate-800">部门成员架构维护</p>
-                            <p className="text-[10px] text-slate-400">协助管理员分配部门内日常工作</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleToggleSupervisorPermission(sp.userId, 'canManageDepartmentMembers')}
-                            className={`px-2 py-1 rounded text-[11px] font-bold transition-all ${
-                              perms.canManageDepartmentMembers
-                                ? 'bg-blue-600 text-white shadow-xs hover:bg-blue-700'
-                                : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
-                            }`}
-                          >
-                            {perms.canManageDepartmentMembers ? '允许维护' : '关闭权限'}
-                          </button>
-                        </div>
-
-                        {/* 5. canViewAllTenders */}
-                        <div className="bg-white p-2.5 rounded-md border border-slate-200 flex items-center justify-between gap-2">
-                          <div>
-                            <p className="text-xs font-bold text-slate-800">全量政企标讯穿透检索</p>
-                            <p className="text-[10px] text-slate-400">跨部门穿透查看政企招采中标数据</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleToggleSupervisorPermission(sp.userId, 'canViewAllTenders')}
-                            className={`px-2 py-1 rounded text-[11px] font-bold transition-all ${
-                              perms.canViewAllTenders
-                                ? 'bg-blue-600 text-white shadow-xs hover:bg-blue-700'
-                                : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
-                            }`}
-                          >
-                            {perms.canViewAllTenders ? '允许穿透' : '限本组'}
-                          </button>
-                        </div>
-                      </div>
+            {/* Selected User Header Card */}
+            {selectedUserForOverride && (
+              <div className="p-4 bg-slate-50/50 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-sm">
+                    {selectedUserForOverride.avatar ? (
+                      <img
+                        src={selectedUserForOverride.avatar}
+                        alt={selectedUserForOverride.displayName}
+                        className="w-full h-full rounded-full object-cover"
+                      />
+                    ) : (
+                      selectedUserForOverride.displayName.slice(0, 1)
+                    )}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-900 text-sm">
+                        {selectedUserForOverride.displayName}
+                      </span>
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          selectedUserForOverride.role === 'admin'
+                            ? 'bg-red-100 text-red-800'
+                            : selectedUserForOverride.role === 'supervisor'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-slate-200 text-slate-800'
+                        }`}
+                      >
+                        {selectedUserForOverride.role === 'admin'
+                          ? '超级管理员'
+                          : selectedUserForOverride.role === 'supervisor'
+                          ? '部门主管'
+                          : '普通成员'}
+                      </span>
+                      <span className="text-xs text-slate-500">
+                        {selectedUserForOverride.department}
+                      </span>
                     </div>
-                  );
-                })}
+                    <p className="text-[11px] text-slate-400 font-mono mt-0.5">
+                      账号: @{selectedUserForOverride.username} | 设备: {selectedUserForOverride.device}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const basePerms = roleDefs[selectedUserForOverride.role]?.permissions || {};
+                      setUsers((prev) =>
+                        prev.map((u) =>
+                          u.userId === selectedUserForOverride.userId
+                            ? {
+                                ...u,
+                                permissions: { ...basePerms },
+                                permissionOverrides: {},
+                              }
+                            : u
+                        )
+                      );
+                      await api.updateUser(selectedUserForOverride.userId, {
+                        permissions: { ...basePerms },
+                        permissionOverrides: {},
+                      });
+                      showToast(`已清空特权覆盖，恢复【${selectedUserForOverride.displayName}】的角色默认设置`);
+                    }}
+                    className="px-2.5 py-1 text-slate-600 hover:text-slate-900 hover:bg-slate-200 text-xs font-semibold rounded-lg border border-slate-200 transition-colors"
+                  >
+                    恢复角色默认
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Overrides Table for selected user */}
+            <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {[
+                {
+                  key: 'canAccessAdminTab' as keyof UserPermissions,
+                  title: '访问管理控制台',
+                  desc: '允许进入后台系统与成员管理',
+                },
+                {
+                  key: 'canEditRolePermissions' as keyof UserPermissions,
+                  title: '调整角色权限策略',
+                  desc: '允许调整全员权限矩阵',
+                },
+                {
+                  key: 'canManageUsers' as keyof UserPermissions,
+                  title: '人员账号新增与重置',
+                  desc: '允许管理用户生命周期',
+                },
+                {
+                  key: 'canManageGroups' as keyof UserPermissions,
+                  title: '设立与维护群组',
+                  desc: '允许创建项目组与邀请成员',
+                },
+                {
+                  key: 'canApproveShare' as keyof UserPermissions,
+                  title: '待办协同审批权',
+                  desc: '允许审批组内待办共享请求',
+                },
+                {
+                  key: 'canManageDepartmentMembers' as keyof UserPermissions,
+                  title: '部门人员编组分工',
+                  desc: '允许调配部门内人员职责',
+                },
+                {
+                  key: 'canExportReports' as keyof UserPermissions,
+                  title: '导出协同汇总报表',
+                  desc: '允许下载待办与协同Excel表',
+                },
+                {
+                  key: 'canViewAllTenders' as keyof UserPermissions,
+                  title: '全量标讯穿透检索',
+                  desc: '不受部门限制检索招采信息',
+                },
+                {
+                  key: 'canManageBranding' as keyof UserPermissions,
+                  title: '企业品牌定制',
+                  desc: '允许修改Logo与系统名',
+                },
+              ].map((perm) => {
+                const user = selectedUserForOverride;
+                if (!user) return null;
+
+                const baseRoleValue = roleDefs[user.role]?.permissions[perm.key] ?? false;
+                const isOverridden = user.permissionOverrides && user.permissionOverrides[perm.key] !== undefined;
+                const effectiveValue = isOverridden
+                  ? Boolean(user.permissionOverrides?.[perm.key])
+                  : (user.permissions?.[perm.key] ?? baseRoleValue);
+
+                return (
+                  <div
+                    key={perm.key}
+                    className={`p-3 rounded-xl border flex flex-col justify-between transition-all ${
+                      effectiveValue
+                        ? 'bg-blue-50/40 border-blue-200'
+                        : 'bg-white border-slate-200'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-xs text-slate-800">
+                          {perm.title}
+                        </span>
+                        {isOverridden ? (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                            独立覆盖
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] text-slate-400">
+                            角色默认
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 line-clamp-1 mb-2">
+                        {perm.desc}
+                      </p>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                      <span className="text-[11px] text-slate-400">
+                        {effectiveValue ? '状态: 已开通' : '状态: 已关闭'}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => handleToggleUserOverride(user.userId, perm.key)}
+                        className={`px-3 py-1 rounded text-xs font-bold transition-all shadow-2xs ${
+                          effectiveValue
+                            ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200'
+                        }`}
+                      >
+                        {effectiveValue ? '点击收回' : '点击授权'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

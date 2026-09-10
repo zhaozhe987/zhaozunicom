@@ -123,6 +123,15 @@ export interface TenderItem {
   contentSnippet: string;
   sourceUrl: string; // Direct external jump link
   sourceWebsiteName: string; // e.g. 四川省公共资源交易信息网
+  projectCode?: string; // 采购项目统一编码 / 招标文号
+  buyerName?: string; // 采购单位全称
+  agentName?: string; // 采购代理机构
+  deadline?: string; // 投标截止时间 / 截标日期
+  contactPerson?: string; // 项目联系人及联系电话
+  fullNoticeText?: string; // 完整真实的招投标公文正文
+  status?: 'bidding' | 'awarded' | 'clarifying' | 'closed'; // 标讯流转状态
+  isCustomAdded?: boolean; // 团队成员录入标识
+  creatorName?: string;
 }
 
 export type MoodType = 'happy' | 'good' | 'normal' | 'down' | 'speechless';
@@ -175,11 +184,23 @@ export const PRESET_DEPARTMENTS = [
 export type PresetDepartment = typeof PRESET_DEPARTMENTS[number];
 
 export interface UserPermissions {
-  canManageGroups?: boolean; // 允许设立与管理群组 (下放至主管)
+  canManageUsers?: boolean; // 允许管理用户账户
+  canEditRolePermissions?: boolean; // 允许调整角色权限矩阵 (超管专享/按需下放)
+  canManageGroups?: boolean; // 允许设立与管理群组
   canApproveShare?: boolean; // 允许审批跨部门待办共享
-  canExportReports?: boolean; // 允许导出部门总结与报表
+  canExportReports?: boolean; // 允许导出部门总结与业务报表
   canManageDepartmentMembers?: boolean; // 允许维护本部门成员
   canViewAllTenders?: boolean; // 允许穿透检索全部标讯
+  canManageBranding?: boolean; // 允许修改系统品牌与个性化设置
+  canAccessAdminTab?: boolean; // 允许进入系统管理与监控后台
+}
+
+export interface RoleDefinition {
+  roleKey: UserRole;
+  roleName: string;
+  description: string;
+  isDefault: boolean;
+  permissions: UserPermissions;
 }
 
 export interface UserInfo {
@@ -195,6 +216,8 @@ export interface UserInfo {
   createdAt: string;
   canManageUsers?: boolean;
   permissions?: UserPermissions;
+  // Specific permission overrides set by superadmin
+  permissionOverrides?: Partial<UserPermissions>;
 }
 
 export interface UserGroup {

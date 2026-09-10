@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { TaskModule } from './components/TaskModule';
@@ -13,6 +13,7 @@ import { MessageCenterModal } from './components/MessageCenterModal';
 import { AnnualSummaryModal } from './components/AnnualSummaryModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { LoginScreen } from './components/LoginScreen';
+import { api } from './utils/api';
 
 import {
   ModuleTab,
@@ -108,19 +109,91 @@ export default function App() {
     }, 400);
   };
 
-  // Sync state changes to persistence
+  // Track whether initial full snapshot from central server DB has been applied
+  const isServerHydrated = useRef(false);
+
+  // 1. Initial full sync from centralized database (/data/db.json)
+  useEffect(() => {
+    api.fetchFullSync().then((snapshot) => {
+      if (snapshot?.data) {
+        const {
+          tasks: serverTasks,
+          memos: serverMemos,
+          expenses: serverExpenses,
+          news: serverNews,
+          tenders: serverTenders,
+          groups: serverGroups,
+          users: serverUsers,
+          branding: serverBranding,
+          shareRequests: serverShareRequests,
+        } = snapshot.data;
+
+        if (Array.isArray(serverTasks) && serverTasks.length > 0) {
+          setTasks(serverTasks);
+          saveTasks(serverTasks);
+        }
+        if (Array.isArray(serverMemos) && serverMemos.length > 0) {
+          setMemos(serverMemos);
+          saveMemos(serverMemos);
+        }
+        if (Array.isArray(serverExpenses) && serverExpenses.length > 0) {
+          setExpenses(serverExpenses);
+          saveExpenses(serverExpenses);
+        }
+        if (Array.isArray(serverNews) && serverNews.length > 0) {
+          setNews(serverNews);
+          saveNews(serverNews);
+        }
+        if (Array.isArray(serverTenders) && serverTenders.length > 0) {
+          setTenders(serverTenders);
+          saveTenders(serverTenders);
+        }
+        if (Array.isArray(serverGroups) && serverGroups.length > 0) {
+          setGroups(serverGroups);
+          saveGroups(serverGroups);
+        }
+        if (Array.isArray(serverUsers) && serverUsers.length > 0) {
+          setUsers(serverUsers);
+          saveUsers(serverUsers);
+        }
+        if (Array.isArray(serverShareRequests)) {
+          setShareRequests(serverShareRequests);
+          saveShareRequests(serverShareRequests);
+        }
+        if (serverBranding?.appName) {
+          setBranding(serverBranding);
+          saveBrandingConfig(serverBranding);
+        }
+      }
+      isServerHydrated.current = true;
+    }).catch((err) => {
+      console.warn('Initial server sync failed, keeping local cache:', err);
+      isServerHydrated.current = true;
+    });
+  }, []);
+
+  // Sync state changes to persistence (both local fallback and central server DB)
   useEffect(() => {
     saveTasks(tasks);
+    if (isServerHydrated.current) {
+      api.batchSaveTasks(tasks);
+    }
     triggerSyncAnimation();
   }, [tasks]);
 
   useEffect(() => {
     saveMemos(memos);
+    if (isServerHydrated.current) {
+      api.batchSaveMemos(memos);
+    }
     triggerSyncAnimation();
   }, [memos]);
 
   useEffect(() => {
     saveExpenses(expenses);
+    if (isServerHydrated.current) {
+      api.batchSaveExpenses(expenses);
+    }
     triggerSyncAnimation();
   }, [expenses]);
 
@@ -166,6 +239,9 @@ export default function App() {
 
   useEffect(() => {
     saveShareRequests(shareRequests);
+    if (isServerHydrated.current) {
+      api.batchSaveShareRequests(shareRequests);
+    }
   }, [shareRequests]);
 
   useEffect(() => {
